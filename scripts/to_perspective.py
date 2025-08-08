@@ -29,9 +29,9 @@ def generate_and_save(e_img, file_name, out_dir, fov, pitch, yaw):
         img = Image.fromarray(perspective_img)
         img.save(out_file_name)
 
-def pano_to_perspective(input_path, output_path, fov=90, yaw=0, pitch=0):
-    base_name = os.path.basename(os.path.dirname(input_path))
-    print(f"Base name: {base_name}")
+def pano_to_perspective(input_path, fov=90, yaw=0, pitch=0):
+    input_path = os.path.abspath(input_path)
+    print(f"Input path: {input_path}")
     file_name = os.path.basename(input_path).split('.')[0]
     print(f"File name: {file_name}")
 
@@ -53,4 +53,16 @@ def pano_to_perspective(input_path, output_path, fov=90, yaw=0, pitch=0):
 
 if __name__ == "__main__":
     file_name = os.path.join("c:", os.sep, "Users", "gfelton", "Projects", "Toolbelt", "data", "output", "13132865405517656670_2.jpg")
-    pano_to_perspective(file_name, "output_perspective.jpg")
+    file_name2 = os.path.join("c:", os.sep, "Users", "gfelton", "Projects", "Toolbelt", "data", "output") 
+    input = file_name2
+    # if we are given a folder of images
+    if os.path.isdir(input):
+        for entry in os.listdir(input):
+            full_path = os.path.join(input, entry)
+            print(f"Split text: {os.path.splitext(entry)} ")
+            if not os.path.isdir(full_path) and os.path.splitext(entry)[-1].lower() in [".jpg", ".jpeg", ".png"]: 
+                pano_to_perspective(full_path)
+    else:
+        pano_to_perspective(input)
+    
+    print("Done!")
