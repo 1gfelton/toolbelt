@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Tools</title>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        form { background: #f4f4f4; padding: 20px; border-radius: 8px; max-width: 800px; margin: auto; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input[type="number"] { width: calc(100% - 22px); padding: 10px; margin-bottom: 15px; border: 1px solid #ddd; border-radius: 4px; }
+        button { padding: 10px 20px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; width: 100%; }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #6c757d; cursor: not-allowed; }
+        .note { margin-top: 20px; font-size: 0.9em; color: #666; }
+        #output-container {
+            display: flex;
+            margin-top: 30px;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        #output-log {
+            flex: 1;
+            min-width: 300px;
+        }
+        #output {
+            background-color: #333;
+            color: #0f0;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        #drop-area {
+            border: 2px dashed #ccc;
+            border-radius: 20px;
+            width: 480px;
+            height: 200px;
+            text-align: center;
+            padding: 20px;
+            margin: 50px auto;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        #drop-area.highlight {
+            border-color: #007bff;
+            background-color: #f0f8ff;
+            transform: scale(1.02);
+        }
+        #drop-area.error {
+            border-color: #dc3545;
+            background-color: #ffebee;
+        }
+        #file-input {
+            display: none;
+        }
+        #file-input-label {
+            display: inline-block;
+            padding: 10px 20px;
+            background-color: #007bff;
+            color: #fff;
+            cursor: pointer;
+            border-radius: 4px;
+            font-size: 16px;
+            margin-top: 10px;
+        }
+        #file-input-label:hover {
+            background-color: #0056b3;
+        }
+        .error-message { color: #f00; font-weight: bold; }
+        .success-message { color: #0a0; font-weight: bold; }
+    </style>
+</head>
+<body>
+    <h1>Video Tools</h1>
+
+    <form id="video2frames">
+        <div id="drop-area">
+            <p>Drag and drop video files here or click to select</p>
+            <input type="file" id="file-input" accept="video/*">
+            <label for="file-input" id="file-input-label">Choose Video</label>
+            <div id="file-info" style="margin-top: 15px; display: none;">
+                <p><strong>Selected file:</strong> <span id="file-name"></span></p>
+                <p><strong>Size:</strong> <span id="file-size"></span></p>
+            </div>
+        </div>
+
+        <button type="submit" id="extractBtn" style="margin-top: 20px;" disabled>Get All Frames</button>
+        <button type="submit" id="getStartFrameButton" style="margin-top: 20px;" disabled>Get Start Frame</button>
+        <button type="submit" id="getEndFrameButton" style="margin-top: 20px;" disabled>Get End Frame</button>
+        <button type="submit" id="convertToGifButton" style="margin-top: 20px;" disabled>Convert to .gif</button>
+    </form>
+
+    <div id="output-container">
+        <div id="output-log">
+            <h2>Extraction Output:</h2>
+            <pre id="output"></pre>
+        </div>
+    </div>
+
+    <script>
+        const dropArea = document.getElementById('drop-area');
+        const fileInput = document.getElementById('file-input');
+        const fileInfo = document.getElementById('file-info');
+        const fileName = document.getElementById('file-name');
+        const fileSize = document.getElementById('file-size');
+        const extractBtn = document.getElementById('extractBtn');
+        const getStartFrameButton= document.getElementById('getStartFrameButton');
+        const getEndFrameButton = document.getElementById('getEndFrameButton');
+        const outputDiv = document.getElementById('output');
+        const convertToGifButton = document.getElementById('convertToGifButton')        
+        let selectedFile = null;
+
+        // Prevent default drag behaviors
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, preventDefaults, false);
+            document.body.addEventListener(eventName, preventDefaults, false);
+        });
+
+        // Highlight drop area when item is dragged over it
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropArea.addEventListener(eventName, highlight, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, unhighlight, false);
+        });
+
+        // Handle dropped files
+        dropArea.addEventListener('drop', handleDrop, false);
+
+        // Handle click to select files
+        dropArea.addEventListener('click', () => fileInput.click());
+        fileInput.addEventListener('change', handleFiles);
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        function highlight(e) {
+            dropArea.classList.add('highlight');
+        }
+
+        function unhighlight(e) {
+            dropArea.classList.remove('highlight', 'error');
+        }
+
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const files = dt.files;
+            handleFiles({ target: { files: files } });
+        }
+
+        function handleFiles(e) {
+            const files = e.target.files;
+            
+            if (files.length === 0) return;
+            
+            const file = files[0];
+            
+            // Validate file type
+            if (!file.type.startsWith('video/')) {
+                dropArea.classList.add('error');
+                alert('Please select a video file.');
+                setTimeout(() => dropArea.classList.remove('error'), 2000);
+                return;
+            }
+            
+            selectedFile = file;
+            displayFileInfo(file);
+            extractBtn.disabled = false;
+            getStartFrameButton.disabled = false;
+            getEndFrameButton.disabled = false;
+            convertToGifButton.disabled = false;
+        }
+
+        function displayFileInfo(file) {
+            fileName.textContent = file.name;
+            fileSize.textContent = formatFileSize(file.size);
+            fileInfo.style.display = 'block';
+        }
+
+        function formatFileSize(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function processVideo(scriptName, buttonElement) {
+            if (!selectedFile) {
+                alert('Please select a video file first.');
+                return;
+            }
+            
+            const outputDiv = document.getElementById('output');
+            
+            // Reset UI and disable button
+            outputDiv.innerHTML = `Starting ${scriptName} processing...<br>`;
+            buttonElement.disabled = true;
+            
+            const formData = new FormData();
+            formData.append('video', selectedFile);
+            formData.append('script', scriptName); // Add script parameter
+            
+            fetch('/process_video', { // Use new generic endpoint
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                if (!response.ok) {
+                    throw new Error('Upload failed');
+                }
+                
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                
+                function readStream() {
+                    return reader.read().then(({ done, value }) => {
+                        if (done) {
+                            buttonElement.disabled = false;
+                            return;
+                        }
+                        
+                        const chunk = decoder.decode(value);
+                        const lines = chunk.split('\n');
+                        
+                        lines.forEach(line => {
+                            if (line.startsWith('data: ')) {
+                                try {
+                                    const data = JSON.parse(line.substring(6));
+                                    
+                                    if (data.type === 'stdout') {
+                                        outputDiv.innerHTML += data.message.replace(/\n/g, '<br>');
+                                    } else if (data.type === 'stderr') {
+                                        outputDiv.innerHTML += `<span class="error-message">ERROR: ${data.message.replace(/\n/g, '<br>')}</span>`;
+                                    } else if (data.type === 'script_end') {
+                                        outputDiv.innerHTML += `--- Script Finished: ${data.status.toUpperCase()} ---<br>`;
+                                        if (data.status === 'failure') {
+                                            outputDiv.innerHTML += `<span class="error-message">Script failed with exit code: ${data.code}</span><br>`;
+                                        }
+                                    } else if (data.type === 'error' || data.type === 'app_error') {
+                                        outputDiv.innerHTML += `<span class="error-message">SERVER ERROR: ${data.message.replace(/\n/g, '<br>')}</span>`;
+                                    }
+                                } catch (e) {
+                                    console.error("Error parsing message:", e);
+                                }
+                            }
+                        });
+                        
+                        outputDiv.scrollTop = outputDiv.scrollHeight;
+                        return readStream();
+                    });
+                }
+                
+                return readStream();
+            })
+            .catch(error => {
+                outputDiv.innerHTML += `<span class="error-message">Upload failed: ${error.message}</span><br>`;
+                buttonElement.disabled = false;
+            });
+        }
+
+        // Update button event listeners to use the reusable function
+        document.getElementById('getStartFrameButton').addEventListener('click', function(e) {
+            e.preventDefault();
+            processVideo('get_start_frame', this);
+        });
+
+        document.getElementById('getEndFrameButton').addEventListener('click', function(e) {
+            e.preventDefault();
+            processVideo('get_end_frame', this);
+        });
+
+        // Update the existing extract frames button
+        document.getElementById('video2frames').addEventListener('submit', function(e) {
+            e.preventDefault();
+            processVideo('get_video_frames', document.getElementById('extractBtn'));
+        });
+
+        document.getElementById('convertToGifButton').addEventListener('click', function(e) {
+            e.preventDefault();
+            processVideo('convert_to_gif', this);
+        });
+        // END CHANGE
+    </script>
+</body>
+</html>

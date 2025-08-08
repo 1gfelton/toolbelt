@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Get Look Around Data (Real-time)</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+    <style>
+        :root {
+            --container-width: 95%;
+        }
+        body { font-family: sans-serif; margin: 20px; }
+        form { background: #f4f4f4; padding: 20px; border-radius: 8px; max-width: var(--container-width); margin: auto; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; }
+        input[type="number"] { width: calc(100% - 22px); padding: 10px; margin-bottom: 15px; border: 1px solid #ddd; border-radius: 4px; }
+        button { padding: 10px 20px; background-color: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; width: 100%; }
+        button:hover { background-color: #0056b3; }
+        button:disabled { background-color: #6c757d; cursor: not-allowed; }
+        .note { margin-top: 20px; font-size: 0.9em; color: #666; }
+        #output-container {
+            display: flex;
+            max-width: var(--container-width);
+            margin-top: 30px;
+            margin: 30px auto;
+            gap: 20px;
+            flex-wrap: wrap; /* Allow wrapping on smaller screens */
+            flex-direction: column;
+        }
+        #output-log {
+            flex: 1;
+            min-width: 300px; /* Ensure log doesn't get too small */
+        }
+        #output {
+            background-color: #333;
+            color: #0f0;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        #map-container {
+            margin-bottom: 20px;
+            border-radius: 8px;
+            overflow: hidden; /* Ensures map corners are rounded with container */
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            width: 90%;
+            margin: auto;
+        }
+        #mapid {
+            height: 800px; /* Fixed height for the map */
+            width: 100%;
+        }
+        #image-preview {
+            flex: 1;
+            text-align: center;
+            background-color: #fff;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+            min-width: 300px; /* Ensure image preview doesn't get too small */
+        }
+        #image-gallery {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+        #image-gallery img {
+            width: 100%;
+            height: auto;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: transform 0.2s;
+        }
+        #image-gallery img:hover {
+            transform: scale(1.05);
+        }
+        .error-message { color: #f00; font-weight: bold; }
+        .success-message { color: #0a0; font-weight: bold; }
+        .image-counter { font-size: 0.9em; color: #666; margin-top: 10px; }
+
+        /* Custom Black Pin Icon Styles */
+        .black-pin-icon {
+            background-color: black;
+            width: 15px;
+            height: 15px;
+            border-radius: 50% 50% 50% 0; /* Creates a teardrop shape */
+            transform: rotate(-45deg); /* Rotates for the pointy end down */
+            border: 1px solid white; /* Small white border for contrast */
+            box-shadow: 0 0 5px rgba(0,0,0,0.5); /* Subtle shadow */
+        }
+        .black-pin-icon::after {
+            content: '';
+            position: absolute;
+            width: 6px;
+            height: 6px;
+            background-color: white; /* Inner circle */
+            border-radius: 50%;
+            top: 4px;
+            left: 4px;
+            transform: rotate(45deg); /* Counter-rotate inner circle */
+        }
+        .data-source-toggle {
+            position: relative;
+            margin-bottom: 15px;
+        }
+
+        .data-source-toggle input[type="radio"] {
+            display: none;
+        }
+
+        .toggle-container {
+            display: flex;
+            background-color: #e9ecef;
+            border-radius: 5px;
+            position: relative;
+            overflow: hidden;
+            border: 1px solid #ddd;
+        }
+
+        .toggle-option {
+            flex: 1;
+            padding: 12px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: color 0.3s ease;
+            font-weight: 500;
+            z-index: 2;
+            position: relative;
+            margin-bottom: 0;
+        }
+
+        .toggle-slider {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 50%;
+            height: 100%;
+            background-color: #007bff;
+            border-radius: 5px;
+            transition: transform 0.3s ease;
+            z-index: 1;
+        }
+
+        #apple:checked ~ .toggle-container .toggle-slider {
+            transform: translateX(0%);
+        }
+
+        #google:checked ~ .toggle-container .toggle-slider {
+            transform: translateX(100%);
+        }
+
+        #apple:checked ~ .toggle-container label[for="apple"] {
+            color: white;
+        }
+
+        #google:checked ~ .toggle-container label[for="google"] {
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <h1>Get Streetview Panoramas</h1>
+
+    <form id="lookaroundForm">
+        <div id="map-container">
+            <div id="mapid"></div>
+        </div>
+
+        <input type="hidden" id="latitude" name="latitude" value="42.363078">
+        <input type="hidden" id="longitude" name="longitude" value="-71.081869">
+
+        <label for="numPanos">Number of Panoramas:</label>
+        <input type="number" id="numPanos" name="numPanos" min="1" max="500" required value="1"><br>
+
+        <label for="zoom">Zoom Level:</label>
+        <input type="number" id="zoom" name="zoom" min="0" max="5" required value="2"><br>
+
+        <label for="dataSource">Data Source:</label>
+        <div class="data-source-toggle">
+            <input type="radio" id="apple" name="dataSource" value="apple" checked>
+            <input type="radio" id="google" name="dataSource" value="google">
+            <div class="toggle-container">
+                <label for="apple" class="toggle-option">Apple Look Around</label>
+                <label for="google" class="toggle-option">Google Street View</label>
+                <div class="toggle-slider"></div>
+            </div>
+        </div><br>
+
+        <button type="submit" id="submitBtn">Get Panoramas</button>
+    </form>
+
+    <div class="note">
+        <p>Click on the map to place a pin and set the coordinates. Then click "Get Panoramas".</p>
+        <p>This will stream output from the Python script and display the resulting panorama images. Higher numbers of panoramas will take longer to process.</p>
+    </div>
+
+    <div id="output-container">
+        <div id="image-preview">
+            <h2>Generated Panoramas:</h2>
+            <p id="imageStatus">Waiting for images...</p>
+            <div class="image-counter" id="imageCounter">0 images loaded</div>
+            <div id="image-gallery"></div>
+        </div>
+        <div id="output-log">
+            <h2>Script Output:</h2>
+            <pre id="output"></pre>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+    <script>
+        // --- Map Initialization ---
+        // Initialize the map, centered on Boston
+        const map = L.map('mapid').setView([42.363078, -71.081869], 13);
+
+        // Add an OpenStreetMap tile layer (CartoDB Light All for minimalism)
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CartoDB</a>'
+        }).addTo(map);
+
+        let currentMarker = null;
+
+        // Define the custom black pin icon
+        const blackPinIcon = L.divIcon({
+            className: 'black-pin-icon',
+            iconSize: [15, 15], // Size of the main div
+            iconAnchor: [7.5, 15] // Point of the icon that corresponds to marker's location
+        });
+
+        // Function to place marker and update hidden input fields
+        function placeMarkerAndUpdateInputs(lat, lon) {
+            // Remove existing marker if any
+            if (currentMarker) {
+                map.removeLayer(currentMarker);
+            }
+
+            // Add a new marker at the clicked location with the custom icon
+            currentMarker = L.marker([lat, lon], { icon: blackPinIcon }).addTo(map)
+                .bindPopup(`Latitude: ${lat.toFixed(6)}<br>Longitude: ${lon.toFixed(6)}`)
+                .openPopup();
+
+            // Update your form's hidden input fields
+            document.getElementById('latitude').value = lat;
+            document.getElementById('longitude').value = lon;
+        }
+
+        // Add a click event listener to the map
+        map.on('click', function(e) {
+            placeMarkerAndUpdateInputs(e.latlng.lat, e.latlng.lng);
+        });
+
+        // Set initial marker based on the default hidden input values (Boston coordinates)
+        const initialLat = parseFloat(document.getElementById('latitude').value);
+        const initialLon = parseFloat(document.getElementById('longitude').value);
+        if (!isNaN(initialLat) && !isNaN(initialLon)) {
+             placeMarkerAndUpdateInputs(initialLat, initialLon);
+        }
+
+        // --- Existing Panorama Script Logic ---
+        let imageCount = 0;
+
+        document.getElementById('lookaroundForm').addEventListener('submit', function(event) {
+            event.preventDefault();
+
+            // Get coordinates from the hidden input fields
+            const latitude = document.getElementById('latitude').value;
+            const longitude = document.getElementById('longitude').value;
+            const numPanos = document.getElementById('numPanos').value;
+            const zoom = document.getElementById('zoom').value;
+            const outputDiv = document.getElementById('output');
+            const imageGallery = document.getElementById('image-gallery');
+            const imageStatus = document.getElementById('imageStatus');
+            const imageCounter = document.getElementById('imageCounter');
+            const submitBtn = document.getElementById('submitBtn');
+            const dataSource = document.querySelector('input[name="dataSource"]:checked').value;
+
+            // Reset UI
+            outputDiv.innerHTML = 'Connecting to server...<br>';
+            imageGallery.innerHTML = '';
+            imageStatus.textContent = 'Waiting for images...';
+            imageCount = 0;
+            imageCounter.textContent = '0 images loaded';
+            submitBtn.disabled = true;
+
+            // Ensure your Flask endpoint is correct here.
+            // It's currently /stream_lookaround as per your app.py
+            let streamUrl;
+            if (dataSource === "apple") {
+                streamUrl = `/stream_lookaround?lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}&num_panos=${encodeURIComponent(numPanos)}`;
+            } else {
+                streamUrl = `/stream_streetview?lat=${encodeURIComponent(latitude)}&lon=${encodeURIComponent(longitude)}&num_panos=${encodeURIComponent(numPanos)}`;
+            }
+
+            // Create the EventSource with the determined URL
+            const eventSource = new EventSource(streamUrl);
+
+            eventSource.onopen = function(e) {
+                outputDiv.innerHTML += 'Connection opened.<br>';
+            };
+
+            eventSource.onmessage = function(e) {
+                try {
+                    const data = JSON.parse(e.data);
+                    console.log("Data type", data.type)
+                    if (data.type === 'stdout') {
+                        outputDiv.innerHTML += data.message.replace(/\n/g, '<br>');
+                    } else if (data.type === 'stderr') {
+                        outputDiv.innerHTML += `<span class="error-message">ERROR: ${data.message.replace(/\n/g, '<br>')}</span>`;
+                    } else if (data.type === 'saved_image') {
+                        const imageUrl = `/static/panoramas/${data.path}`;
+
+                        // Create image element
+                        const img = document.createElement('img');
+                        img.src = imageUrl;
+                        img.alt = `Panorama ${data.pano_id || 'Unknown'}`;
+                        img.title = `Click to view full size - ${data.pano_id || 'Unknown'}`;
+
+                        img.onload = () => {
+                            imageCount++;
+                            imageCounter.textContent = `${imageCount} image${imageCount !== 1 ? 's' : ''} loaded`;
+                            if (imageCount === 1) {
+                                imageStatus.textContent = 'Images loaded! Click to view full size.';
+                            }
+                        };
+
+                        img.onerror = () => {
+                            outputDiv.innerHTML += `<span class="error-message">Error: Could not load image from ${imageUrl}</span><br>`;
+                        };
+
+                        // Add click handler for full-size view
+                        img.onclick = () => {
+                            window.open(imageUrl, '_blank');
+                        };
+
+                        imageGallery.appendChild(img);
+                        outputDiv.innerHTML += `<span class="success-message">Image saved: ${data.path}</span><br>`;
+                    } else if (data.type === 'script_end') {
+                        outputDiv.innerHTML += `--- Script Finished: ${data.status.toUpperCase()} ---<br>`;
+                        if (data.status === 'failure') {
+                            outputDiv.innerHTML += `<span class="error-message">Script failed with exit code: ${data.code}</span><br>`;
+                            if (imageCount === 0) {
+                                imageStatus.textContent = 'Script failed to generate images.';
+                            }
+                        }
+                        eventSource.close();
+                        submitBtn.disabled = false;
+                    } else if (data.type === 'error' || data.type === 'app_error') {
+                        outputDiv.innerHTML += `<span class="error-message">SERVER ERROR: ${data.message.replace(/\n/g, '<br>')}</span>`;
+                        eventSource.close();
+                        submitBtn.disabled = false;
+                        imageStatus.textContent = 'Error occurred during processing.';
+                    }
+                } catch (e) {
+                    console.error("Error parsing SSE message:", e, e.data);
+                    outputDiv.innerHTML += `<span class="error-message">Error parsing server message: ${e.message}</span><br>`;
+                }
+                outputDiv.scrollTop = outputDiv.scrollHeight;
+            };
+
+            eventSource.onerror = function(e) {
+                console.error("EventSource failed:", e);
+                outputDiv.innerHTML += '<span class="error-message">Connection closed unexpectedly or error occurred.</span><br>';
+                eventSource.close();
+                submitBtn.disabled = false;
+                if (imageCount === 0) {
+                    imageStatus.textContent = 'Connection error.';
+                }
+            };
+        });
+    </script>
+</body>
+</html>
