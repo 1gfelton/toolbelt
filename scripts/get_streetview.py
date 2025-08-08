@@ -49,30 +49,10 @@ initial_tile = streetview.get_coverage_tile_by_latlon(target_lat, target_lon)
 if not initial_tile:
     print(f"No coverage tile found for initial coordinates {target_lat}, {target_lon}.", file=sys.stderr)
     sys.exit(1)
-
-#initial_tile_x = initial_tile.x
-#initial_tile_y = initial_tile.y
-#
-## Expand search area based on number of requested panoramas
-## For more panoramas, we need to search more tiles
-#search_radius = max(1, math.ceil(math.sqrt(num_panos / 4)))  # Adaptive search radius
-#
-#tile_coords_to_check = set()
-#for dx in range(-search_radius, search_radius + 1):
-#    for dy in range(-search_radius, search_radius + 1):
-#        tile_coords_to_check.add((initial_tile_x + dx, initial_tile_y + dy))
-#
 all_panos = []
+
 print(f"Fetching panoramas...")
-#
-#for tile_x, tile_y in tqdm(tile_coords_to_check, desc="Fetching tiles", file=sys.stderr):
-#    try:
-#        tile = streetview.get_coverage_tile(tile_x, tile_y)
-#        if tile and tile.panos:
-#            all_panos.extend(tile.panos)
-#    except Exception as e:
-#        print(f"Could not fetch tile ({tile_x}, {tile_y}): {e}", file=sys.stderr)
-#        continue
+
 if initial_tile:
     for pano_idx, pano in tqdm(enumerate(initial_tile)):
         all_panos.append(pano)
