@@ -1,4 +1,5 @@
 from flask import Flask, jsonify, request, render_template, Response, stream_with_context, send_from_directory
+from flaskwebgui import FlaskUI
 import os
 import subprocess
 import sys
@@ -7,6 +8,8 @@ import time
 from werkzeug.utils import secure_filename
 import tempfile
 import shutil
+
+from config import DESKTOP_CONFIG, CORPORATE_CONFIG, get_base_path, is_executable
 
 app = Flask(__name__)
 
@@ -514,5 +517,16 @@ if __name__ == "__main__":
     print(f"Scripts directory: {SCRIPTS_DIR}")
     print(f"Templates directory: {TEMPLATES_DIR}")
     print(f"Output directory: {OUTPUT_DIR}")
+
+    if CORPORATE_CONFIG['disable_dev_tools']:
+        app.config['ENV'] = 'production'
+        app.config['DEBUG'] = False
+
+    ui = FlaskUI(
+        app=app,
+        server="flask",
+        **DESKTOP_CONFIG,
+    )
     
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    #app.run(debug=True, host='0.0.0.0', port=5000)
+    ui.run()
