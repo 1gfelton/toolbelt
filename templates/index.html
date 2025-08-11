@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<!-- <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -38,5 +38,260 @@
         <button id="lookaroundPage" onclick="location.href='lookaround'">Go to Panorama Tools</button>
         <button id="converter" onclick="location.href='video_tools'">Go to Video Tools</button>
     </div>
+</body>
+</html> -->
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Frame Extractor</title>
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.12.7/dist/umd/ffmpeg.js"></script>
+    <style>
+        body { font-family: sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; text-align: center; margin-bottom: 30px; }
+        .tool-section { background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px; }
+        .drop-zone { border: 2px dashed #ccc; border-radius: 10px; padding: 40px; text-align: center; transition: all 0.3s; cursor: pointer; }
+        .drop-zone:hover, .drop-zone.dragover { border-color: #007bff; background: #f0f8ff; }
+        .file-input { display: none; }
+        .btn { padding: 12px 24px; background: #007bff; color: white; border: none; border-radius: 5px; cursor: pointer; font-size: 16px; margin: 10px 5px; }
+        .btn:hover { background: #0056b3; }
+        .btn:disabled { background: #6c757d; cursor: not-allowed; }
+        .progress-bar { width: 100%; height: 20px; background: #e9ecef; border-radius: 10px; overflow: hidden; margin: 20px 0; }
+        .progress-fill { height: 100%; background: #007bff; width: 0%; transition: width 0.3s; }
+        .output-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 20px; }
+        .output-item { text-align: center; background: #f8f9fa; padding: 15px; border-radius: 8px; }
+        .output-item img { max-width: 100%; height: auto; border-radius: 5px; cursor: pointer; }
+        .embed-code { background: #f1f3f4; padding: 15px; border-radius: 5px; font-family: monospace; font-size: 12px; margin-top: 20px; word-break: break-all; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .status.loading { background: #e3f2fd; color: #1565c0; }
+        .status.success { background: #e8f5e8; color: #2e7d32; }
+        .status.error { background: #ffebee; color: #c62828; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Video Frame Extractor</h1>
+        
+        <div class="tool-section">
+            <h3>Upload Video</h3>
+            <div class="drop-zone" id="dropZone">
+                <p>📁 Drop video file here or click to browse</p>
+                <p style="font-size: 14px; color: #666;">Supports MP4, MOV, AVI, WebM</p>
+                <input type="file" id="fileInput" class="file-input" accept="video/*">
+            </div>
+            <div id="fileInfo" style="display: none; margin-top: 15px;">
+                <strong>Selected:</strong> <span id="fileName"></span> (<span id="fileSize"></span>)
+            </div>
+        </div>
+
+        <div class="tool-section">
+            <h3>Extract Options</h3>
+            <button class="btn" id="firstFrameBtn" disabled>First Frame</button>
+            <button class="btn" id="lastFrameBtn" disabled>Last Frame</button>
+            <button class="btn" id="allFramesBtn" disabled>All Frames</button>
+        </div>
+
+        <div id="progressSection" style="display: none;">
+            <div class="status loading" id="statusText">Initializing FFmpeg...</div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+        </div>
+
+        <div id="outputSection" style="display: none;">
+            <h3>Results</h3>
+            <div class="output-grid" id="outputGrid"></div>
+        </div>
+
+        <div class="tool-section">
+            <h3>Embed This Tool</h3>
+            <p>Copy this code to embed in your website or intranet:</p>
+            <div class="embed-code">
+&lt;iframe src="https://1gfelton.github.io/YOUR_REPO" width="100%" height="600" frameborder="0"&gt;&lt;/iframe&gt;
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { FFmpeg } = FFmpegWASM;
+        let ffmpeg = null;
+        let currentFile = null;
+
+        // DOM elements
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const fileInfo = document.getElementById('fileInfo');
+        const fileName = document.getElementById('fileName');
+        const fileSize = document.getElementById('fileSize');
+        const firstFrameBtn = document.getElementById('firstFrameBtn');
+        const lastFrameBtn = document.getElementById('lastFrameBtn');
+        const allFramesBtn = document.getElementById('allFramesBtn');
+        const progressSection = document.getElementById('progressSection');
+        const statusText = document.getElementById('statusText');
+        const progressFill = document.getElementById('progressFill');
+        const outputSection = document.getElementById('outputSection');
+        const outputGrid = document.getElementById('outputGrid');
+
+        // Initialize FFmpeg
+        async function initFFmpeg() {
+            if (!ffmpeg) {
+                ffmpeg = new FFmpeg();
+                await ffmpeg.load();
+            }
+        }
+
+        // File handling
+        dropZone.addEventListener('click', () => fileInput.click());
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+        dropZone.addEventListener('dragleave', () => dropZone.classList.remove('dragover'));
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            handleFile(e.dataTransfer.files[0]);
+        });
+        fileInput.addEventListener('change', (e) => handleFile(e.target.files[0]));
+
+        function handleFile(file) {
+            if (!file || !file.type.startsWith('video/')) {
+                alert('Please select a valid video file');
+                return;
+            }
+            
+            currentFile = file;
+            fileName.textContent = file.name;
+            fileSize.textContent = formatFileSize(file.size);
+            fileInfo.style.display = 'block';
+            
+            // Enable buttons
+            firstFrameBtn.disabled = false;
+            lastFrameBtn.disabled = false;
+            allFramesBtn.disabled = false;
+        }
+
+        function formatFileSize(bytes) {
+            const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+            if (bytes === 0) return '0 Bytes';
+            const i = Math.floor(Math.log(bytes) / Math.log(1024));
+            return Math.round(bytes / Math.pow(1024, i) * 100) / 100 + ' ' + sizes[i];
+        }
+
+        // Frame extraction functions
+        firstFrameBtn.addEventListener('click', () => extractFrame('first'));
+        lastFrameBtn.addEventListener('click', () => extractFrame('last'));
+        allFramesBtn.addEventListener('click', () => extractAllFrames());
+
+        async function extractFrame(type) {
+            if (!currentFile) return;
+            
+            showProgress('Initializing...');
+            await initFFmpeg();
+            
+            try {
+                showProgress('Processing video...');
+                
+                // Write file to FFmpeg virtual filesystem
+                await ffmpeg.writeFile('input.mp4', new Uint8Array(await currentFile.arrayBuffer()));
+                
+                let command;
+                let outputName;
+                
+                if (type === 'first') {
+                    command = ['-i', 'input.mp4', '-vf', 'select=eq(n\\,0)', '-vframes', '1', 'first_frame.jpg'];
+                    outputName = 'first_frame.jpg';
+                } else {
+                    command = ['-sseof', '-3', '-i', 'input.mp4', '-update', '1', '-q:v', '1', 'last_frame.jpg'];
+                    outputName = 'last_frame.jpg';
+                }
+                
+                await ffmpeg.exec(command);
+                
+                const data = await ffmpeg.readFile(outputName);
+                displayResult(data, `${type}_frame_${currentFile.name}.jpg`);
+                
+                showSuccess('Frame extracted successfully!');
+                
+            } catch (error) {
+                showError('Error extracting frame: ' + error.message);
+            }
+        }
+
+        async function extractAllFrames() {
+            if (!currentFile) return;
+            
+            showProgress('Initializing...');
+            await initFFmpeg();
+            
+            try {
+                showProgress('Extracting all frames...');
+                
+                await ffmpeg.writeFile('input.mp4', new Uint8Array(await currentFile.arrayBuffer()));
+                await ffmpeg.exec(['-i', 'input.mp4', 'frame_%04d.jpg']);
+                
+                // Read all generated frames
+                const files = await ffmpeg.listDir('/');
+                const frameFiles = files.filter(f => f.name.startsWith('frame_') && f.name.endsWith('.jpg'));
+                
+                outputGrid.innerHTML = '';
+                
+                for (const frameFile of frameFiles) {
+                    const data = await ffmpeg.readFile(frameFile.name);
+                    displayResult(data, frameFile.name);
+                }
+                
+                showSuccess(`Extracted ${frameFiles.length} frames successfully!`);
+                
+            } catch (error) {
+                showError('Error extracting frames: ' + error.message);
+            }
+        }
+
+        function displayResult(data, filename) {
+            const blob = new Blob([data], { type: 'image/jpeg' });
+            const url = URL.createObjectURL(blob);
+            
+            const item = document.createElement('div');
+            item.className = 'output-item';
+            item.innerHTML = `
+                <img src="${url}" alt="${filename}" onclick="downloadImage('${url}', '${filename}')">
+                <p>${filename}</p>
+                <button class="btn" onclick="downloadImage('${url}', '${filename}')">Download</button>
+            `;
+            
+            outputGrid.appendChild(item);
+            outputSection.style.display = 'block';
+        }
+
+        function downloadImage(url, filename) {
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            a.click();
+        }
+
+        function showProgress(message) {
+            statusText.textContent = message;
+            statusText.className = 'status loading';
+            progressSection.style.display = 'block';
+            progressFill.style.width = '50%';
+        }
+
+        function showSuccess(message) {
+            statusText.textContent = message;
+            statusText.className = 'status success';
+            progressFill.style.width = '100%';
+        }
+
+        function showError(message) {
+            statusText.textContent = message;
+            statusText.className = 'status error';
+            progressFill.style.width = '0%';
+        }
+    </script>
 </body>
 </html>
