@@ -114,7 +114,7 @@
             <h3>Embed This Tool</h3>
             <p>Copy this code to embed in your website or intranet:</p>
             <div class="embed-code">
-&lt;iframe src="https://YOUR_USERNAME.github.io/YOUR_REPO" width="100%" height="600" frameborder="0"&gt;&lt;/iframe&gt;
+&lt;iframe src="https://1gfelton.github.io/toolbelt" width="100%" height="600" frameborder="0"&gt;&lt;/iframe&gt;
             </div>
         </div>
     </div>
@@ -200,7 +200,7 @@
         async function convertToGif() {
             if (!currentFile || !video.duration) return;
 
-            const frameRate = 2; // 2 FPS for smaller GIF
+            const frameRate = 30; 
             const maxDuration = Math.min(video.duration, 10); // Max 10 seconds
             const totalFrames = Math.floor(maxDuration * frameRate);
             
