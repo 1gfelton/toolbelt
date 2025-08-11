@@ -21,6 +21,24 @@ ALLOWED_EXTENSIONS = ["mp4", "m4a", "gif", "mov", "webm"]
 UPLOAD_FOLDER = os.path.join(os.path.dirname(__file__), 'data', 'input')
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+def configure_for_desktop():
+    """Configure flask settings for desktop"""
+    if is_executable():
+        # Running as packaged executable
+        app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
+        app.config['TEMPLATES_AUTO_RELOAD'] = False
+        
+        # Ensure data directories exist in executable
+        base_path = get_base_path()
+        global OUTPUT_DIR, UPLOAD_FOLDER
+        OUTPUT_DIR = os.path.join(os.path.expanduser('~'), 'PayetteToolbelt', 'output')
+        UPLOAD_FOLDER = os.path.join(os.path.expanduser('~'), 'PayetteToolbelt', 'input')
+        
+        os.makedirs(OUTPUT_DIR, exist_ok=True)
+        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+        
+        print(f"Desktop mode: Data in {os.path.expanduser('~')}/PayetteToolbelt/")
+
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
 
@@ -508,6 +526,8 @@ def process_video():
     return Response(stream_with_context(generate()), mimetype='text/event-stream')
 
 if __name__ == "__main__":
+    # Configure for desktop mode
+    configure_for_desktop()
     # Create necessary directories
     if not os.path.exists(TEMPLATES_DIR):
         os.makedirs(TEMPLATES_DIR)
