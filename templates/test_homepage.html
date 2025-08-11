@@ -1,0 +1,277 @@
+import React, { useState, useRef, useCallback } from 'react';
+import { Upload, Play, Download, Image, Video, Scissors, RotateCcw, Plus, Camera } from 'lucide-react';
+
+const ToolCard = ({ tool }) => {
+  const [isHovered, setIsHovered] = useState(false);
+  const [isDragOver, setIsDragOver] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [result, setResult] = useState(null);
+  const fileInputRef = useRef(null);
+
+  // Unique colors for each tool
+  const colors = [
+    'rgb(200, 0, 0)', // pure deep red
+    'rgb(100, 100, 255)', // bright blue
+    'rgb(0, 255, 159)', // vibrant mint green
+    'rgb(255, 60, 60)', // much more red cream orange
+    'rgb(255, 255, 0)' // bright yellow
+  ];
+  
+  const toolColor = colors[tool.id % colors.length];
+  
+  // Determine if we need dark text for readability
+  const rgb = toolColor.match(/\d+/g).map(Number);
+  const brightness = (rgb[0] * 299 + rgb[1] * 587 + rgb[2] * 114) / 1000;
+  const textColor = brightness > 128 ? '#000000' : '#ffffff';
+
+  const handleDragOver = useCallback((e) => {
+    e.preventDefault();
+    setIsDragOver(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e) => {
+    e.preventDefault();
+    setIsDragOver(false);
+  }, []);
+
+  const handleDrop = useCallback((e) => {
+    e.preventDefault();
+    setIsDragOver(false);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) {
+      handleFileProcess(files[0]);
+    }
+  }, []);
+
+  const handleFileSelect = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      handleFileProcess(file);
+    }
+  };
+
+  const handleFileProcess = async (file) => {
+    setIsProcessing(true);
+    await new Promise(resolve => setTimeout(resolve, 1500));
+    setResult({
+      name: `${tool.name.toLowerCase()}_${file.name}`,
+      size: '2.3 MB',
+      url: URL.createObjectURL(file)
+    });
+    setIsProcessing(false);
+  };
+
+  const resetTool = () => {
+    setResult(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  return (
+    <div 
+      className={`rounded-2xl transition-all duration-500 ease-out cursor-pointer ${
+        isHovered ? 'h-80 p-6 backdrop-blur-md' : 'h-20 p-4 bg-transparent'
+      }`}
+      style={{
+        backgroundColor: isHovered ? toolColor : 'transparent',
+        boxShadow: isHovered ? `inset 8px 8px 16px rgba(255,255,255,0.1), inset -8px -8px 16px rgba(0,0,0,0.1), 0 0 30px ${toolColor.replace('rgb(', 'rgba(').replace(')', ', 0.4)')}` : 'none'
+      }}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      {/* Always visible: Icon + Title */}
+      <div className="flex items-center gap-3">
+        <div className="w-10 h-10 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center" style={{
+          backgroundColor: isHovered ? 'rgba(255,255,255,0.3)' : 'rgba(255,255,255,0.2)',
+          boxShadow: isHovered ? '2px 2px 4px rgba(0,0,0,0.2)' : 'none'
+        }}>
+          <tool.icon 
+            className="w-5 h-5 transition-colors duration-500" 
+            style={{ 
+              color: isHovered ? (brightness > 128 ? '#000000' : '#ffffff') : 'white',
+              filter: isHovered ? 'drop-shadow(1px 1px 2px rgba(0,0,0,0.3))' : 'none'
+            }} 
+          />
+        </div>
+        <h3 className="font-medium transition-colors duration-500" style={{fontFamily: 'Outfit, system-ui, sans-serif', textShadow: '-1px -1px 0 rgba(255,255,255,0.1), 1px 1px 0 rgba(0,0,0,0.1)', color: isHovered ? textColor : 'white'}}>{tool.name}</h3>
+      </div>
+
+      {/* Hover content */}
+      <div className={`transition-all duration-500 overflow-hidden ${
+        isHovered ? 'opacity-100 mt-4 max-h-96' : 'opacity-0 mt-0 max-h-0'
+      }`}>
+        <p className="text-sm mb-4 transition-colors duration-500" style={{color: isHovered ? (brightness > 128 ? 'rgba(0,0,0,0.7)' : 'rgba(255,255,255,0.7)') : 'rgb(209, 213, 219)'}}>{tool.description}</p>
+
+        {!result ? (
+          <div
+            className={`border-2 border-dashed rounded-xl flex flex-col items-center justify-center p-6 transition-colors ${
+              isDragOver ? 'border-white/60 bg-white/10' : 'border-white/30 hover:border-white/50'
+            }`}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {isProcessing ? (
+              <div className="flex flex-col items-center gap-3">
+                <div className="w-8 h-8 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                <p className="text-sm text-gray-300">Processing...</p>
+              </div>
+            ) : (
+              <>
+                <Upload className="w-8 h-8 text-gray-400 mb-3" />
+                <p className="text-sm text-gray-300 text-center">
+                  Drop video here or <span className="text-white font-medium">browse files</span>
+                </p>
+                <p className="text-xs text-gray-500 mt-1">MP4, MOV, AVI supported</p>
+              </>
+            )}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="video/*"
+              onChange={handleFileSelect}
+              className="hidden"
+            />
+          </div>
+        ) : (
+          <div className="flex flex-col gap-4">
+            <div className="bg-white/10 backdrop-blur-sm rounded-xl p-4">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-sm font-medium text-white">Result</p>
+                <button
+                  onClick={resetTool}
+                  className="text-gray-400 hover:text-white transition-colors"
+                >
+                  <RotateCcw className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="space-y-2">
+                <p className="text-sm text-gray-300">{result.name}</p>
+                <p className="text-xs text-gray-500">{result.size}</p>
+              </div>
+            </div>
+            <button className="w-full bg-white/20 backdrop-blur-md text-white rounded-xl py-2.5 font-medium hover:bg-white/30 transition-colors flex items-center justify-center gap-2">
+              <Download className="w-4 h-4" />
+              Download
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const Toolbelt = () => {
+  const [isPlusHovered, setIsPlusHovered] = useState(false);
+  const [isToolbeltHovered, setIsToolbeltHovered] = useState(false);
+
+  const tools = [
+    {
+      id: 1,
+      name: "Video to GIF",
+      description: "Convert video files to animated GIFs",
+      icon: Image,
+      category: "convert"
+    },
+    {
+      id: 2,
+      name: "First Frame",
+      description: "Extract the first frame as image",
+      icon: Play,
+      category: "extract"
+    },
+    {
+      id: 3,
+      name: "Last Frame",
+      description: "Extract the last frame as image",
+      icon: Video,
+      category: "extract"
+    },
+    {
+      id: 4,
+      name: "Frame Sequence",
+      description: "Extract all frames as images",
+      icon: Scissors,
+      category: "extract"
+    }
+  ];
+
+  return (
+    <div className="min-h-screen bg-black">
+      {/* Header */}
+      <div className="">
+        <div className="max-w-7xl mx-auto px-6 py-8 flex justify-center">
+          <div className="bg-white/20 backdrop-blur-sm rounded-xl p-4 flex items-center gap-3">
+            <div 
+              className="relative"
+              onMouseEnter={() => setIsToolbeltHovered(true)}
+              onMouseLeave={() => setIsToolbeltHovered(false)}
+            >
+              <h1 className="text-2xl font-bold text-white" style={{fontFamily: 'Outfit, system-ui, sans-serif', textShadow: '-1px -1px 0 rgba(255,255,255,0.1), 1px 1px 0 rgba(0,0,0,0.1)'}}>toolbelt</h1>
+              
+              {/* Camera Mode Toggles */}
+              <div className={`absolute -bottom-12 left-1/2 transform -translate-x-1/2 flex gap-2 transition-all duration-300 ${
+                isToolbeltHovered ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'
+              }`}>
+                <button className="w-8 h-8 bg-white/20 backdrop-blur-sm rounded-lg flex items-center justify-center hover:bg-white/30 transition-colors">
+                  <Video className="w-4 h-4 text-white" />
+                </button>
+                <button className="w-8 h-8 bg-white/20 backdrop-blur-sm rounded-lg flex items-center justify-center hover:bg-white/30 transition-colors">
+                  <Camera className="w-4 h-4 text-white" />
+                </button>
+              </div>
+            </div>
+            
+            {/* Plus and Add Tool Widget */}
+            <div className="flex items-center">
+              <div 
+                className={`bg-blue-500 backdrop-blur-md rounded-xl px-3 py-2 flex items-center transition-all duration-300 ${
+                  isPlusHovered ? 'gap-2' : 'justify-center'
+                }`} 
+                style={{
+                  boxShadow: '0 0 15px rgba(59, 130, 246, 0.4)'
+                }}
+                onMouseEnter={() => setIsPlusHovered(true)}
+                onMouseLeave={() => setIsPlusHovered(false)}
+              >
+                <span className="text-white font-bold text-xl">+</span>
+                <span className={`text-white font-medium text-sm whitespace-nowrap transition-all duration-300 overflow-hidden ${
+                  isPlusHovered ? 'opacity-100 max-w-20' : 'opacity-0 max-w-0'
+                }`}>Add Tool</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Tools Grid */}
+      <div className="max-w-7xl mx-auto px-6 py-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {tools.map((tool) => (
+            <ToolCard key={tool.id} tool={tool} />
+          ))}
+        </div>
+
+        {/* Add Tool Card */}
+        <div className="mt-12 max-w-md mx-auto">
+          <div className="bg-white/10 backdrop-blur-md rounded-2xl p-6 text-center">
+            <div className="w-12 h-12 bg-white/20 backdrop-blur-sm rounded-xl flex items-center justify-center mx-auto mb-4">
+              <Upload className="w-6 h-6 text-gray-400" />
+            </div>
+            <h3 className="font-medium text-white mb-2" style={{fontFamily: 'Outfit, system-ui, sans-serif', textShadow: '-1px -1px 0 rgba(255,255,255,0.1), 1px 1px 0 rgba(0,0,0,0.1)'}}>Add Your Own Tools</h3>
+            <p className="text-sm text-gray-300 mb-4">
+              Upload Python scripts to create custom video processing tools
+            </p>
+            <button className="text-white font-medium text-sm hover:text-gray-300 transition-colors">
+              Learn more →
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default Toolbelt;
