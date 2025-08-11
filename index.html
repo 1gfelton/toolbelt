@@ -200,7 +200,7 @@
         async function convertToGif() {
             if (!currentFile || !video.duration) return;
 
-            const frameRate = 30; 
+            const frameRate = 12; 
             const maxDuration = Math.min(video.duration, 10); // Max 10 seconds
             const totalFrames = Math.floor(maxDuration * frameRate);
             
