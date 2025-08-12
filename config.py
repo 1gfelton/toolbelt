@@ -3,7 +3,7 @@ import sys
 
 # Desktop app configuration
 DESKTOP_CONFIG = {
-    'window_title': 'Payette Toolbelt',
+    'title': 'Payette Toolbelt',
     'width': 1200,
     'height': 800,
     'maximized': False,
