@@ -4,3 +4,4 @@ dist/
 **/*build*
 build/
 **/*__pycache__*
+!rebuild.sh
