@@ -48,8 +48,11 @@ def pano_to_perspective(input_path, fov=90, yaw=0, pitch=0):
     yaw_vals = [yaw*i for i in range(num_imgs_per_ring)]
 
     tasks = [(pitch, yaw) for pitch in pitch_vals for yaw in yaw_vals]
-    with tpe() as executor:
-        executor.map(lambda args: generate_and_save(e_img, file_name, out_dir, fov, args[0], args[1]), tasks)
+    print(f"Processing {len(tasks)} perspective views sequentially...")
+    for i, (pitch, yaw) in enumerate(tasks):
+        print(f"View {i+1}/{len(tasks)}: pitch={pitch}°, yaw={yaw}°")
+        generate_and_save(e_img, file_name, out_dir, fov, pitch, yaw)    #with tpe() as executor:
+    #    executor.map(lambda args: generate_and_save(e_img, file_name, out_dir, fov, args[0], args[1]), tasks)
 
 if __name__ == "__main__":
     file_name = os.path.join("c:", os.sep, "Users", "gfelton", "Projects", "Toolbelt", "data", "output", "13132865405517656670_2.jpg")
