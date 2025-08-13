@@ -4,7 +4,6 @@ import subprocess
 import sys
 import numpy as np
 import pandas as pd
-from PIL import Image
 from pathlib import Path
 
 try:
@@ -125,11 +124,52 @@ elif tool_choice == "Get Panoramas":
         st.markdown("---")
         
         # Download button
-        if st.button("🚀 Download Panoramas", type="primary"):
+        if st.button("Download Panoramas", type="primary"):
             with st.spinner("Downloading panoramas..."):
-                # Here we'll call your actual scripts
+                script_name = ""
+                if "Apple" in service:
+                    script_name = "get_lookaround.py"
+                elif "Google" in service:
+                    script_name = "get_streetview.py"
+
+                upper_dir = os.path.dirname(os.getcwd())
+                script_path = os.path.join(upper_dir, "scripts", script_name)
+                cmd = [
+                    sys.executable,
+                    script_path,
+                    str(st.session_state.selected_lat),
+                    str(st.session_state.selected_lon),
+                    str(num_panos),
+                    str(zoom_level),
+                ]
+                st.info(f"Running: {' '.join([os.path.basename(p) for p in cmd])}")
+
+                try:
+                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                    if result.returncode == 0:
+                        st.success(f"Download complete!") 
+
+                        if result.stdout:
+                           with st.expander("Script Output"):
+                               st.info(result.stdout)
+                        out_dir = os.path.join(upper_dir, "data", "output")
+                        os.makedirs(out_dir, exist_ok=True)
+                        files = [f for f in os.listdir(out_dir) if f.endswith(('.jpg', '.jpeg', '.png'))]
+                        st.write(f"📁 Found {len(files)} panorama files")
+                    
+                        # Display first few images
+                        for i, file in enumerate(files[:3]):  # Show first 3 images
+                            file_path = os.path.join(out_dir, file)
+                            st.image(file_path, caption=f"Panorama {i+1}: {file}", width=400)
+                    else:
+                        st.error("Download Failed!")
+                        if result.stderr:
+                            with st.expander("Error Details"):
+                                st.text(result.stderr)
+
+                except Exception as e:
+                    print(f"Unexpected Error: {e}")
+
                 st.success(f"Started download for {num_panos} panoramas at {st.session_state.selected_lat:.6f}, {st.session_state.selected_lon:.6f}")
-                # TODO: Integrate actual script calls here
-# Footer
-st.markdown("---")
-st.markdown("*Built with Streamlit*")
+                # call my script here
+                # downloaded panoramas should populate page
