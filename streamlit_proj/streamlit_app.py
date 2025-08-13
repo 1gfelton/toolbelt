@@ -36,7 +36,7 @@ def split_panoramas_to_perspective(recent_files, upper_dir):
             # Run to_perspective.py on this file
             cmd = [sys.executable, script_path, file_path]
             
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=240)
             
             if result.returncode == 0:
                 processed_successfully += 1
@@ -104,7 +104,7 @@ def show_perspective_results(recent_files, upper_dir):
                                 except:
                                     caption = perspective_file
                                 
-                                col.image(perspective_path, caption=caption, use_column_width=True)
+                                col.image(perspective_path, caption=caption, use_container_width=True)
                     
                     if len(perspective_files) > 9:
                         st.info(f"📁 Plus {len(perspective_files) - 9} more perspective views in {perspective_dir}")
@@ -234,7 +234,9 @@ elif tool_choice == "Get Panoramas":
     
     # Centered download button
     col1, col2, col3 = st.columns([1, 2, 1])
-    recent_files = None
+    if 'recent_files' not in st.session_state:
+        st.session_state.recent_files = None
+
     upper_dir = os.path.dirname(os.getcwd())
     with col2:
         if st.button("📥 Start Download", type="primary", use_container_width=True):
@@ -291,42 +293,41 @@ elif tool_choice == "Get Panoramas":
                                 files_with_time.sort(reverse=True)
                                 
                                 # Show only recently created files (within last 2 minutes)
-                                recent_files = [
+                                st.session_state.recent_files = [
                                     (mod_time, file, file_path) 
                                     for mod_time, file, file_path in files_with_time 
                                     if current_time - mod_time < 120
                                 ]
-                                
-                                if recent_files:
-                                    st.success(f"🎉 Successfully downloaded {len(recent_files)} new panoramas!")
+                                if st.session_state.recent_files:
+                                    st.success(f"🎉 Successfully downloaded {len(st.session_state.recent_files)} new panoramas!")
                                     
                                     # Display images in a nice grid
-                                    if len(recent_files) == 1:
+                                    if len(st.session_state.recent_files) == 1:
                                         # Single image - show large
-                                        mod_time, file, file_path = recent_files[0]
+                                        mod_time, file, file_path = st.session_state.recent_files[0]
                                         download_time = time.strftime('%H:%M:%S', time.localtime(mod_time))
                                         st.image(file_path, caption=f"📸 {file} (Downloaded: {download_time})", use_container_width=True)
                                         
-                                    elif len(recent_files) <= 3:
+                                    elif len(st.session_state.recent_files) <= 3:
                                         # Few images - show in columns
-                                        cols = st.columns(len(recent_files))
-                                        for i, (mod_time, file, file_path) in enumerate(recent_files):
+                                        cols = st.columns(len(st.session_state.recent_files))
+                                        for i, (mod_time, file, file_path) in enumerate(st.session_state.recent_files):
                                             download_time = time.strftime('%H:%M:%S', time.localtime(mod_time))
                                             cols[i].image(file_path, caption=f"📸 #{i+1}\n{download_time}", use_container_width=True)
                                             
                                     else:
                                         # Many images - show in grid of 3 columns
-                                        for i in range(0, len(recent_files), 3):
+                                        for i in range(0, len(st.session_state.recent_files), 3):
                                             cols = st.columns(3)
                                             for j, col in enumerate(cols):
-                                                if i + j < len(recent_files):
-                                                    mod_time, file, file_path = recent_files[i + j]
+                                                if i + j < len(st.session_state.recent_files):
+                                                    mod_time, file, file_path = st.session_state.recent_files[i + j]
                                                     download_time = time.strftime('%H:%M:%S', time.localtime(mod_time))
                                                     col.image(file_path, caption=f"📸 #{i+j+1}\n{download_time}", use_container_width=True)
                                     
                                     # File details
                                     with st.expander("📁 File Details"):
-                                        for mod_time, file, file_path in recent_files:
+                                        for mod_time, file, file_path in st.session_state.recent_files:
                                             file_size = os.path.getsize(file_path)
                                             download_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(mod_time))
                                             st.write(f"📄 **{file}** - {file_size:,} bytes - Downloaded: {download_time}")
@@ -359,17 +360,16 @@ elif tool_choice == "Get Panoramas":
     st.subheader("🔄 Convert to Perspective Views")
     st.write("Split panoramas into multiple perspective views for 3D reconstruction")
 
-    if recent_files:
-        split_col1, split_col2 = st.columns([3, 1])
+    if st.session_state.recent_files:
+        st.write(f"📋 Ready to process {len(st.session_state.recent_files)} panorama(s)")
+        for _, file, _ in st.session_state.recent_files:  # Fixed: was *, file, * 
+            st.write(f"• {file}")
         
-        with split_col1:
-            st.write(f"📋 Ready to process {len(recent_files)} panorama(s)")
-            for _, file, _ in recent_files:  # Fixed: was *, file, * 
-                st.write(f"• {file}")
-        
-        with split_col2:
-            if st.button("🎯 Split to Perspectives", type="secondary", use_container_width=True):
-                split_panoramas_to_perspective(recent_files, upper_dir) 
+        if st.button("🎯 Split to Perspectives", type="secondary", use_container_width=True):
+            st.write("DEBUG: Split button clicked!")
+            st.write(f"DEBUG: st.session_state.recent_files = {len(st.session_state.recent_files) if st.session_state.recent_files else 'None'}")
+            st.write(f"DEBUG: upper_dir = {upper_dir}")
+            split_panoramas_to_perspective(st.session_state.recent_files, upper_dir) 
     else:
         st.write("**Or upload panoramas to split:**")
         uploaded_panos = st.file_uploader(
@@ -465,11 +465,11 @@ elif tool_choice == "Get Panoramas":
                 
                 if process.returncode == 0:
                     processed_successfully += 1
-                    status_placeholder.success(f"✅ Completed {filename}")
+                    status_placeholder.success(f"Completed {filename}")
                     all_outputs.extend(output_lines)
                 else:
-                    status_placeholder.error(f"❌ Failed to process {filename}")
-                    with st.expander(f"🔍 Error details for {filename}"):
+                    status_placeholder.error(f"Failed to process {filename}")
+                    with st.expander(f"Error details for {filename}"):
                         st.text('\n'.join(output_lines))
             
             except subprocess.TimeoutExpired:
@@ -511,7 +511,15 @@ elif tool_choice == "Get Panoramas":
         for mod_time, filename, file_path in file_list:
             # Get the filename without extension for the output directory
             file_name = os.path.splitext(filename)[0]
-            perspective_dir = os.path.join(base_output_dir, file_name)
+            perspective_dir = os.path.join(base_output_dir, "perspectives")
+            st.write(f"🔍 **Debug Info:**")
+            st.write(f"- Looking for: `{perspective_dir}`")
+            st.write(f"- Directory exists: {os.path.exists(perspective_dir)}")
+            st.write(f"- Base output dir exists: {os.path.exists(base_output_dir)}")
+
+            if os.path.exists(base_output_dir):
+                contents = os.listdir(base_output_dir)
+                st.write(f"- Contents of output dir: {contents}")
             
             if os.path.exists(perspective_dir):
                 # Look for perspective files (based on your to_perspective.py output pattern)
@@ -564,7 +572,7 @@ elif tool_choice == "Get Panoramas":
                                         else:
                                             caption = pf
                                         
-                                        col.image(perspective_path, caption=caption, use_column_width=True)
+                                        col.image(perspective_path, caption=caption, use_container_width=True)
                         
                         # Show directory info
                         st.info(f"📁 {len(perspective_files)} perspective views saved to: `{perspective_dir}`")
