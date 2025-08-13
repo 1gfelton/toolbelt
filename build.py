@@ -21,10 +21,10 @@ def check_requirements():
     try:
         import flask
         import flaskwebgui
-        print("✓ Core dependencies found")
+        print("[x] Core dependencies found")
         return True
     except ImportError as e:
-        print(f"✗ Missing dependency: {e}")
+        print(f"[ ] Missing dependency: {e}")
         print("Run: pip install -r requirements.txt")
         return False
 
@@ -37,10 +37,10 @@ def build_executable():
     
     try:
         result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-        print("✓ Build completed successfully")
+        print("[x] Build completed successfully")
         return True
     except subprocess.CalledProcessError as e:
-        print(f"✗ Build failed: {e}")
+        print(f"[ ] Build failed: {e}")
         print("STDOUT:", e.stdout)
         print("STDERR:", e.stderr)
         return False

@@ -338,8 +338,9 @@ def upload_video():
             filename = secure_filename(file.filename)
             temp_file_path = os.path.join(OUTPUT_DIR, filename)
             file.save(temp_file_path)
+            newline = '\n'
             
-            yield f"data: {json.dumps({'type': 'stdout', 'message': f'File uploaded: {filename}\\n'})}\n\n"
+            yield f"data: {json.dumps({'type': 'stdout', 'message': f'File uploaded: {filename}{newline}'})}\n\n"
             
             script_path = os.path.join(SCRIPTS_DIR, 'get_video_frames.py')
             
@@ -450,9 +451,10 @@ def process_video():
             filename = secure_filename(file.filename)
             temp_file_path = os.path.join(UPLOAD_FOLDER, filename)
             file.save(temp_file_path)
+            newline = '\n'
             
-            yield f"data: {json.dumps({'type': 'stdout', 'message': f'File uploaded: {filename}\\n'})}\n\n"
-            yield f"data: {json.dumps({'type': 'stdout', 'message': f'Running script: {script_name}\\n'})}\n\n"
+            yield f"data: {json.dumps({'type': 'stdout', 'message': f'File uploaded: {filename}{newline}'})}\n\n"
+            yield f"data: {json.dumps({'type': 'stdout', 'message': f'Running script: {script_name}{newline}'})}\n\n"
             
             script_path = os.path.join(SCRIPTS_DIR, script_name + '.py')
             

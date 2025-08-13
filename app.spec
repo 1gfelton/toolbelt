@@ -1,32 +1,15 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+
 block_cipher = None
+
 
 a = Analysis(
     ['app.py'],
     pathex=[],
     binaries=[],
-    datas=[
-        ('templates', 'templates'),
-        ('scripts', 'scripts'),
-        ('static', 'static'),
-        ('data', 'data'),
-        ('config.py', '.'),
-    ],
-    hiddenimports=[
-        'flask',
-        'flaskwebgui',
-        'pillow_heif',
-        'streetlevel',
-        'py360convert',
-        'cv2',
-        'numpy',
-        'tqdm',
-        'requests',
-        'PIL',
-        'werkzeug.security',
-        'jinja2',
-    ],
+    datas=[('templates', 'templates'), ('scripts', 'scripts'), ('config.py', '.')],
+    hiddenimports=[],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
@@ -36,7 +19,6 @@ a = Analysis(
     cipher=block_cipher,
     noarchive=False,
 )
-
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
 exe = EXE(
@@ -46,18 +28,17 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='PayetteToolbelt',
+    name='app',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
     upx_exclude=[],
     runtime_tmpdir=None,
-    console=False,  # Set to True for debugging
+    console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
-    #icon='icon.ico'  # Add your icon file
 )
