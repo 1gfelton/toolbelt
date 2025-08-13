@@ -5,10 +5,7 @@ import sys
 DESKTOP_CONFIG = {
     'width': 1200,
     'height': 800,
-    'maximized': False,
-    'resizable': True,
     'fullscreen': False,
-    'close_server_on_exit': True,
     'on_startup': lambda: print("Payette Toolbelt starting..."),
     'on_shutdown': lambda: print("Payette Toolbelt closing...")
 }

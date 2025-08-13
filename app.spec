@@ -17,7 +17,7 @@ a = Analysis(
     win_no_prefer_redirects=False,
     win_private_assemblies=False,
     cipher=block_cipher,
-    noarchive=False,
+    noarchive=True,
 )
 pyz = PYZ(a.pure, a.zipped_data, cipher=block_cipher)
 
@@ -27,9 +27,9 @@ exe = EXE(
     a.binaries,
     a.zipfiles,
     a.datas,
-    [],
+    [('v', None, 'OPTION')],
     name='app',
-    debug=False,
+    debug=True,
     bootloader_ignore_signals=False,
     strip=False,
     upx=True,
