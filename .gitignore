@@ -1,3 +1,5 @@
 *.jpg
 data/
 dist/
+**/*build*
+build/
