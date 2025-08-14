@@ -12,3 +12,4 @@ folium
 streamlit_folium
 pandas
 tqdm
+torch
