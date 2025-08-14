@@ -1,9 +1,7 @@
-Flask
-flaskwebgui
 pillow
 pillow-heif
+opencv-python
 numpy
-tqdm
 requests
 streetlevel
 py360convert
@@ -11,4 +9,6 @@ opencv-python
 Werkzeug
 pyinstaller
 folium
-st_folium
+streamlit_folium
+pandas
+tqdm
