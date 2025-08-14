@@ -16,8 +16,9 @@ if len(sys.argv) < 3:
 try:
     target_lat = float(sys.argv[1])
     target_lon = float(sys.argv[2])
-    num_panos = int(sys.argv[3]) 
-    zoom = int(sys.argv[4]) if len(sys.argv) > 4 else 2
+    out_dir = str(sys.argv[3]) 
+    num_panos = int(sys.argv[4]) 
+    zoom = int(sys.argv[5]) if len(sys.argv) > 4 else 2
 except ValueError:
     print("Error: Latitude and longitude must be valid numbers, num_panos must be a valid integer.")
     sys.exit(1)
@@ -30,16 +31,8 @@ if num_panos < 1 or num_panos > 500:
 # --- End: Get target coordinates and number from cmd arguments
 
 # --- Define Output Dir
-
-out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "output")
-
-if not os.path.exists(out_dir):
-    os.makedirs(out_dir)
-
-# --- Initialize authentication and zoom level
-
-#auth = streetview.Authenticator()
-zoom = 2
+out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "output") if out_dir == None else out_dir
+os.makedirs(out_dir, exist_ok=True)
 
 print(f"Searching for up to {num_panos} panorama(s) near {target_lat}, {target_lon}")
 

@@ -10,14 +10,15 @@ import os
 # --- Start: get target coords and number from cmd arguments
 
 if len(sys.argv) < 3:
-    print("Usage: python get_lookaround.py <latitude> <longitude> [num_panos]")
+    print("Usage: python get_lookaround.py <latitude> <longitude> <out_dir> [num_panos]")
     sys.exit(1)
 
 try:
     target_lat = float(sys.argv[1])
     target_lon = float(sys.argv[2])
-    num_panos = int(sys.argv[3]) 
-    zoom = int(sys.argv[4]) if len(sys.argv) > 4 else 2
+    out_dir = int(sys.argv[3]) 
+    num_panos = int(sys.argv[4]) 
+    zoom = int(sys.argv[5]) if len(sys.argv) > 4 else 2
 except ValueError:
     print("Error: Latitude and longitude must be valid numbers, num_panos must be a valid integer.")
     sys.exit(1)
@@ -30,16 +31,12 @@ if num_panos < 1 or num_panos > 500:
 # --- End: Get target coordinates and number from cmd arguments
 
 # --- Define Output Dir
-
-out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "output")
-
-if not os.path.exists(out_dir):
-    os.makedirs(out_dir)
+out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "output") if out_dir == None else out_dir
+os.makedirs(out_dir, exist_ok=True)
 
 # --- Initialize authentication and zoom level
 
 auth = lookaround.Authenticator()
-#zoom = 0
 
 print(f"Searching for up to {num_panos} panorama(s) near {target_lat}, {target_lon}")
 
