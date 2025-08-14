@@ -1,6 +1,5 @@
 import streamlit as st
 import os
-import subprocess
 import sys
 import numpy as np
 import pandas as pd
@@ -11,73 +10,300 @@ import atexit
 import shutil
 import zipfile
 from datetime import datetime
+import time
+import math
+from tqdm import tqdm
 
+# Import heavy modules once at startup
 try:
-    import folium
-    from streamlit_folium import st_folium
-except ImportError:
-    pass
-
-@st.cache_resource
-def load_heavy_modules():
     import cv2
-    import numpy as np
     import torch
     import torchvision
-
-def run_script_with_output_dir(cmd, output_dir, title="Running Script", timeout=120):
-    """Run script with custom output directory"""
-    # Modify command to include output directory
-    modified_cmd = cmd + [output_dir]
+    import folium
+    from streamlit_folium import st_folium
     
+    # Import script modules
+    import pillow_heif as ph
+    from PIL import Image
+    from streetlevel import lookaround
+    import py360convert
+    
+except ImportError as e:
+    st.error(f"Missing required dependencies: {e}")
+
+# Import script functions
+def import_script_functions():
+    """Import functions from script files"""
+    try:
+        # Add scripts directory to path
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(app_dir)
+        scripts_dir = os.path.join(project_root, "scripts")
+        sys.path.insert(0, scripts_dir)
+        
+        return scripts_dir
+    except Exception as e:
+        st.error(f"Failed to import script functions: {e}")
+        return None
+
+def get_lookaround_panoramas(target_lat, target_lon, out_dir, num_panos, zoom, progress_callback=None):
+    """
+    Download panoramas from Apple Lookaround
+    
+    Args:
+        target_lat: Target latitude
+        target_lon: Target longitude  
+        out_dir: Output directory
+        num_panos: Number of panoramas to download
+        zoom: Zoom level
+        progress_callback: Function to call with progress updates
+    
+    Returns:
+        dict: {"success": bool, "output": str, "downloaded_files": list}
+    """
+    try:
+        # Validate inputs
+        if num_panos < 1 or num_panos > 500:
+            return {"success": False, "output": "Number of panoramas must be between 1 and 500.", "downloaded_files": []}
+        
+        os.makedirs(out_dir, exist_ok=True)
+        
+        if progress_callback:
+            progress_callback(f"Searching for up to {num_panos} panorama(s) near {target_lat}, {target_lon}")
+        
+        # Initialize authentication
+        auth = lookaround.Authenticator()
+        
+        # Get initial coverage tile
+        initial_tile = lookaround.get_coverage_tile_by_latlon(target_lat, target_lon)
+        
+        if not initial_tile:
+            return {"success": False, "output": f"No coverage tile found for coordinates {target_lat}, {target_lon}.", "downloaded_files": []}
+        
+        initial_tile_x = initial_tile.x
+        initial_tile_y = initial_tile.y
+        
+        # Expand search area based on number of requested panoramas
+        search_radius = max(1, math.ceil(math.sqrt(num_panos / 4)))
+        
+        tile_coords_to_check = set()
+        for dx in range(-search_radius, search_radius + 1):
+            for dy in range(-search_radius, search_radius + 1):
+                tile_coords_to_check.add((initial_tile_x + dx, initial_tile_y + dy))
+        
+        all_panos = []
+        if progress_callback:
+            progress_callback(f"Fetching panoramas from {len(tile_coords_to_check)} coverage tiles...")
+        
+        for tile_x, tile_y in tile_coords_to_check:
+            try:
+                tile = lookaround.get_coverage_tile(tile_x, tile_y)
+                if tile and tile.panos:
+                    all_panos.extend(tile.panos)
+            except Exception as e:
+                if progress_callback:
+                    progress_callback(f"Could not fetch tile ({tile_x}, {tile_y}): {e}")
+                continue
+        
+        if not all_panos:
+            return {"success": False, "output": "No panoramas found in the selected coverage tiles.", "downloaded_files": []}
+        
+        if progress_callback:
+            progress_callback(f"Found {len(all_panos)} total panorama(s) in search area")
+        
+        def distance(lat1, lon1, lat2, lon2):
+            """Calculate simple Euclidean distance between two coordinates"""
+            return math.sqrt(((lat1 - lat2) ** 2) + ((lon1 - lon2) ** 2))
+        
+        # Sort panoramas by distance and take the closest ones
+        sorted_panos = sorted(all_panos, key=lambda p: distance(p.lat, p.lon, target_lat, target_lon))
+        selected_panos = sorted_panos[:num_panos]
+        
+        if progress_callback:
+            progress_callback(f"Selected {len(selected_panos)} closest panorama(s)")
+            for i, pano in enumerate(selected_panos, 1):
+                dist = distance(pano.lat, pano.lon, target_lat, target_lon)
+                progress_callback(f"  {i}. Pano {pano.id} at {pano.lat}, {pano.lon} (distance: {dist:.8f}) - {pano.date}")
+        
+        # Process each selected panorama
+        successful_downloads = 0
+        failed_downloads = 0
+        downloaded_files = []
+        
+        for pano_idx, pano in enumerate(selected_panos, 1):
+            if progress_callback:
+                progress_callback(f"Processing panorama {pano_idx}/{len(selected_panos)}: {pano.id}")
+            
+            faces = []
+            face_download_success = True
+            
+            for face_idx in range(6):
+                try:
+                    face_heic = lookaround.get_panorama_face(pano, face_idx, zoom, auth)
+                    face = ph.open_heif(face_heic, convert_hdr_to_8bit=False, bgr_mode=False)
+                    np_arr = np.asarray(face)
+                    faces.append(Image.fromarray(np_arr))
+                except Exception as e:
+                    if progress_callback:
+                        progress_callback(f"Error downloading face {face_idx} for pano {pano.id}: {e}")
+                    face_download_success = False
+                    break
+            
+            if face_download_success and len(faces) == 6:
+                try:
+                    result = lookaround.to_equirectangular(faces, pano.camera_metadata)
+                    output_filename = os.path.join(out_dir, f"{pano.id}_{zoom}.jpg")
+                    result.save(output_filename, options={"quality": 100})
+                    downloaded_files.append(output_filename)
+                    if progress_callback:
+                        progress_callback(f"Saved equirectangular panorama: {output_filename}")
+                    successful_downloads += 1
+                except Exception as e:
+                    if progress_callback:
+                        progress_callback(f"Error creating equirectangular panorama for pano {pano.id}: {e}")
+                    failed_downloads += 1
+            else:
+                if progress_callback:
+                    progress_callback(f"Could not download all 6 faces for pano {pano.id}. Skipping.")
+                failed_downloads += 1
+        
+        # Summary
+        output_lines = [
+            f"=== Processing Complete ===",
+            f"Successfully processed: {successful_downloads} panorama(s)",
+            f"Failed to process: {failed_downloads} panorama(s)",
+            f"Total requested: {num_panos}"
+        ]
+        
+        if successful_downloads == 0:
+            return {"success": False, "output": "\n".join(output_lines), "downloaded_files": []}
+        elif failed_downloads > 0:
+            output_lines.append(f"Warning: {failed_downloads} panorama(s) failed to process.")
+        
+        return {"success": True, "output": "\n".join(output_lines), "downloaded_files": downloaded_files}
+        
+    except Exception as e:
+        return {"success": False, "output": f"Error in get_lookaround_panoramas: {str(e)}", "downloaded_files": []}
+
+def convert_panorama_to_perspective(input_path, output_dir, fov=100, progress_callback=None):
+    """
+    Convert equirectangular panorama to perspective views
+    
+    Args:
+        input_path: Path to input panorama
+        output_dir: Output directory for perspective views
+        fov: Field of view for perspective views
+        progress_callback: Function to call with progress updates
+    
+    Returns:
+        dict: {"success": bool, "output": str, "generated_files": list}
+    """
+    try:
+        input_path = os.path.abspath(input_path)
+        
+        if not os.path.exists(input_path):
+            return {"success": False, "output": f"File not found: {input_path}", "generated_files": []}
+        
+        file_name = os.path.basename(input_path).split('.')[0]
+        perspective_dir = os.path.join(output_dir, "perspectives")
+        os.makedirs(perspective_dir, exist_ok=True)
+        
+        if progress_callback:
+            progress_callback(f"Loading image: {input_path}")
+        
+        # Load the image
+        e_img = cv2.imread(input_path)[:, :, ::-1]
+        
+        if progress_callback:
+            progress_callback(f"Loaded image shape: {e_img.shape}")
+        
+        # Generate perspective views
+        num_pics = 8 
+        yaw_vals = [i*(360//num_pics) for i in range(num_pics)]
+        pitch_vals = [-30, 0, 30]
+        
+        tasks = [(pitch, yaw) for pitch in pitch_vals for yaw in yaw_vals]
+        generated_files = []
+        success_count = 0
+        
+        if progress_callback:
+            progress_callback(f"Creating {len(tasks)} perspective views...")
+        
+        for i, (pitch, yaw) in enumerate(tasks):
+            try:
+                if progress_callback:
+                    progress_callback(f"Creating perspective view {i+1}/{len(tasks)}: pitch={pitch}, yaw={yaw}")
+                
+                perspective_img = py360convert.e2p(
+                    e_img,
+                    fov_deg=(fov, fov),
+                    u_deg=yaw,
+                    v_deg=pitch,
+                    out_hw=(1024, 1024),
+                    in_rot_deg=0
+                )
+                
+                out_file_name = os.path.join(perspective_dir, f"{file_name}_split_{yaw}_{pitch}.jpg")
+                img = Image.fromarray(perspective_img)
+                img.save(out_file_name)
+                generated_files.append(out_file_name)
+                success_count += 1
+                
+            except Exception as e:
+                if progress_callback:
+                    progress_callback(f"Error processing pitch={pitch}, yaw={yaw}: {e}")
+        
+        output_summary = f"Perspective conversion complete! Successes: {success_count}, Expected: {len(tasks)}"
+        
+        return {
+            "success": success_count > 0, 
+            "output": output_summary, 
+            "generated_files": generated_files
+        }
+        
+    except Exception as e:
+        return {"success": False, "output": f"Error in convert_panorama_to_perspective: {str(e)}", "generated_files": []}
+
+def run_function_with_progress(func, title="Processing", **kwargs):
+    """
+    Run a function with real-time progress display
+    
+    Args:
+        func: Function to run
+        title: Display title
+        **kwargs: Arguments to pass to function
+    
+    Returns:
+        Function result
+    """
     st.info(f"🔄 {title}...")
     output_placeholder = st.empty()
     progress_lines = []
     
-    try:
-        # Set environment variable for scripts to use
-        env = os.environ.copy()
-        env['PANORAMA_OUTPUT_DIR'] = output_dir
-        
-        process = subprocess.Popen(
-            modified_cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-            bufsize=1,
-            universal_newlines=True,
-            env=env
+    def progress_callback(message):
+        progress_lines.append(str(message))
+        recent_output = '\n'.join(progress_lines[-10:])
+        output_placeholder.text_area(
+            f"📡 {title}:", 
+            recent_output, 
+            height=150,
+            disabled=True
         )
+    
+    try:
+        # Add progress callback to function arguments
+        kwargs['progress_callback'] = progress_callback
+        result = func(**kwargs)
         
-        for line in iter(process.stdout.readline, ''):
-            if line.strip():
-                progress_lines.append(line.strip())
-                
-                recent_output = '\n'.join(progress_lines[-10:])
-                output_placeholder.text_area(
-                    f"📡 {title}:", 
-                    recent_output, 
-                    height=150,
-                    disabled=True
-                )
-        
-        process.wait()
+        # Clear the output placeholder
         output_placeholder.empty()
         
-        full_output = '\n'.join(progress_lines)
-        success_keywords = ["Successfully", "100%", "completed", "SUCCESS"]
-        has_success_keywords = any(keyword in full_output for keyword in success_keywords)
-        success = process.returncode == 0 or has_success_keywords
-        
-        return {
-            "success": success,
-            "output": full_output,
-            "returncode": process.returncode
-        }
+        return result
         
     except Exception as e:
-        st.error(f"💥 Error running script: {str(e)}")
-        return {"success": False, "output": str(e), "returncode": -1}
+        output_placeholder.empty()
+        st.error(f"💥 Error: {str(e)}")
+        return {"success": False, "output": str(e)}
 
 def create_output_zip():
     """Creates a zip file of the current output directory"""
@@ -98,30 +324,19 @@ def create_output_zip():
     
     with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
         for file_path in all_files:
-            # Add file to zip with relative path from output_dir
             arcname = os.path.relpath(file_path, st.session_state.output_dir)
             zipf.write(file_path, arcname)
     
     return zip_path, zip_filename
 
-def split_panoramas_to_perspective(file_list, scripts_dir):
-    """Split panoramas into perspective views using to_perspective.py"""
-    
-    script_name = "to_perspective.py"
-    script_path = os.path.join(scripts_dir, script_name)
-    
-    if not os.path.exists(script_path):
-        st.error("❌ to_perspective.py script not found!")
-        st.write(f"Expected location: {script_path}")
-        return
+def split_panoramas_to_perspective(file_list):
+    """Split panoramas into perspective views"""
     
     total_files = len(file_list)
     st.info(f"🔄 Processing {total_files} panorama(s) into perspective views...")
     
-    # Create progress tracking
     progress_bar = st.progress(0)
     status_placeholder = st.empty()
-    output_placeholder = st.empty()
     
     processed_successfully = 0
     all_outputs = []
@@ -129,56 +344,23 @@ def split_panoramas_to_perspective(file_list, scripts_dir):
     for i, (mod_time, filename, file_path) in enumerate(file_list):
         status_placeholder.info(f"🎯 Processing {filename} ({i+1}/{total_files})")
         
-        try:
-            # Your to_perspective.py script expects just the file path
-            cmd = [sys.executable, script_path, file_path, st.session_state.output_dir]
-            
-            # Run with real-time output capture
-            process = subprocess.Popen(
-                cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-                universal_newlines=True
-            )
-            
-            # Collect output lines
-            output_lines = []
-            for line in iter(process.stdout.readline, ''):
-                if line.strip():
-                    output_lines.append(line.strip())
-                    
-                    # Show recent output (last 3 lines)
-                    recent_output = '\n'.join(output_lines[-3:])
-                    output_placeholder.text_area(
-                        f"Processing {filename}:", 
-                        recent_output, 
-                        height=80,
-                        disabled=True
-                    )
-            
-            process.wait()
-            
-            if process.returncode == 0:
-                processed_successfully += 1
-                status_placeholder.success(f"Completed {filename}")
-                all_outputs.extend(output_lines)
-            else:
-                status_placeholder.error(f"Failed to process {filename}")
-                with st.expander(f"Error details for {filename}"):
-                    st.text('\n'.join(output_lines))
+        result = run_function_with_progress(
+            convert_panorama_to_perspective,
+            title=f"Processing {filename}",
+            input_path=file_path,
+            output_dir=st.session_state.output_dir
+        )
         
-        except subprocess.TimeoutExpired:
-            st.error(f"⏰ Processing {filename} timed out")
-        except Exception as e:
-            st.error(f"💥 Error processing {filename}: {str(e)}")
+        if result["success"]:
+            processed_successfully += 1
+            status_placeholder.success(f"Completed {filename}")
+            all_outputs.append(result["output"])
+        else:
+            status_placeholder.error(f"Failed to process {filename}")
+            with st.expander(f"Error details for {filename}"):
+                st.text(result["output"])
         
-        # Update progress
         progress_bar.progress((i + 1) / total_files)
-    
-    # Clear the output placeholder
-    output_placeholder.empty()
     
     # Final status and show results
     if processed_successfully == total_files:
@@ -191,80 +373,9 @@ def split_panoramas_to_perspective(file_list, scripts_dir):
     else:
         st.error("❌ Failed to process any panoramas")
     
-    # Show complete processing log
     if all_outputs:
         with st.expander("📄 Complete Processing Log"):
             st.text('\n'.join(all_outputs))
-
-def run_script_realtime(cmd, title="Running Script", timeout=120, success_keywords=None, output_dir=None):
-    """
-    Run a script with real-time output display in Streamlit
-    
-    Args:
-        cmd: List of command arguments (e.g., [sys.executable, script_path, arg1, arg2])
-        title: Display title for the progress area
-        timeout: Timeout in seconds
-        success_keywords: List of strings to check for success (default: ["Successfully", "100%", "completed"])
-    
-    Returns:
-        dict: {"success": bool, "output": str, "returncode": int}
-    """
-    if output_dir is None:
-        output_dir=st.session_state.output_dir
-
-    if success_keywords is None:
-        success_keywords = ["Successfully", "100%", "completed", "SUCCESS"]
-    
-    st.info(f"🔄 {title}...")
-    output_placeholder = st.empty()
-    progress_lines = []
-    
-    try:
-        process = subprocess.Popen(
-            cmd,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,  # Merge stderr into stdout
-            text=True,
-            bufsize=1,
-            universal_newlines=True
-        )
-        
-        # Read output line by line in real-time
-        for line in iter(process.stdout.readline, ''):
-            if line.strip():
-                progress_lines.append(line.strip())
-                
-                # Show last 10 lines in real-time
-                recent_output = '\n'.join(progress_lines[-10:])
-                output_placeholder.text_area(
-                    f"📡 {title}:", 
-                    recent_output, 
-                    height=150,
-                    disabled=True
-                )
-        
-        process.wait()
-        
-        # Clear the output placeholder
-        output_placeholder.empty()
-        
-        # Check for success
-        full_output = '\n'.join(progress_lines)
-        has_success_keywords = any(keyword in full_output for keyword in success_keywords)
-        success = process.returncode == 0 or has_success_keywords
-        
-        return {
-            "success": success,
-            "output": full_output,
-            "returncode": process.returncode
-        }
-        
-    except subprocess.TimeoutExpired:
-        st.error(f"⏰ {title} timed out after {timeout} seconds")
-        return {"success": False, "output": "", "returncode": -1}
-    except Exception as e:
-        st.error(f"💥 Error running script: {str(e)}")
-        return {"success": False, "output": str(e), "returncode": -1}
 
 def show_perspective_results(recent_files, output_dir):
     """Display the generated perspective views"""
@@ -285,20 +396,16 @@ def show_perspective_results(recent_files, output_dir):
             if perspective_files:
                 st.write(f"📸 **{file}** → {len(perspective_files)} perspective views")
                 
-                # Show first few perspective views in a grid
                 with st.expander(f"View perspectives from {file} ({len(perspective_files)} images)"):
-                    # Sort perspective files by name for consistent ordering
                     perspective_files.sort()
                     
-                    # Show in grid of 3 columns
-                    for i in range(0, min(9, len(perspective_files)), 3):  # Show max 9 images
+                    for i in range(0, min(9, len(perspective_files)), 3):
                         cols = st.columns(3)
                         for j, col in enumerate(cols):
                             if i + j < len(perspective_files):
                                 perspective_file = perspective_files[i + j]
                                 perspective_path = os.path.join(perspective_dir, perspective_file)
                                 
-                                # Extract angle info from filename for caption
                                 try:
                                     parts = perspective_file.split('_split_')[1].replace('.jpg', '').split('_')
                                     yaw, pitch = parts[0], parts[1]
@@ -315,63 +422,37 @@ def show_perspective_results(recent_files, output_dir):
         else:
             st.warning(f"⚠️ Output directory not found for {file}")
 
-def run_simple_test(script_name):
-    upper_dir = os.path.dirname(os.getcwd())
-    script_path = os.path.join(st.session_state.scripts_dir, script_name)
-
-    try:
-        result = subprocess.run(
-            [sys.executable, script_path],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-        return True, f"Script found: {script_name}", result
-
-    except Exception as e:
-        print(f"Script didn't work: {e}")
-
 st.set_page_config(
-        page_title="Panorama Tools",
-        layout="wide",
-        )
+    page_title="Panorama Tools",
+    layout="wide",
+)
 
 def initialize_session():
     """Initialize user session with proper isolation"""
     if 'session_id' not in st.session_state:
         st.session_state.session_id = str(uuid.uuid4())[:8]
         
-        # Create base temp directory with better naming
         base_temp = os.path.join(tempfile.gettempdir(), "panorama_app")
         os.makedirs(base_temp, exist_ok=True)
         
-        # User-specific directory
         st.session_state.temp_dir = os.path.join(base_temp, f"user_{st.session_state.session_id}")
         st.session_state.output_dir = os.path.join(st.session_state.temp_dir, "output")
-        #st.session_state.scripts_dir = os.path.join(os.path.dirname(os.getcwd()), "scripts")
-        app_dir = os.path.dirname(os.path.abspath(__file__))
-        project_root = os.path.dirname(app_dir)
-        st.session_state.scripts_dir = os.path.join(project_root, "scripts")
-        if not os.path.exists(st.session_state.scripts_dir):
-            st.error(f"Scripts dir not found at {st.session_state.scripts_dir}")
-            st.write(f"Current app dir: {app_dir}")
-            st.write(f"Project root: {project_root}")
+        
+        # Import script functions and set scripts directory
+        st.session_state.scripts_dir = import_script_functions()
+        if not st.session_state.scripts_dir:
+            st.error("Failed to initialize script functions")
             st.stop()
         
-        # Ensure directories exist
         os.makedirs(st.session_state.output_dir, exist_ok=True)
         os.makedirs(os.path.join(st.session_state.temp_dir, "script_output"), exist_ok=True)
         
-        # Clean up old sessions on startup
         cleanup_old_sessions(base_temp)
-        
-        # Store cleanup flag for proper session management
         st.session_state.cleanup_registered = True
 
 def cleanup_old_sessions(base_temp, max_age_hours=24):
     """Clean up temp directories older than max_age_hours"""
     try:
-        import time
         current_time = time.time()
         cutoff_time = current_time - (max_age_hours * 3600)
         
@@ -379,7 +460,6 @@ def cleanup_old_sessions(base_temp, max_age_hours=24):
             item_path = os.path.join(base_temp, item)
             if os.path.isdir(item_path) and item.startswith("user_"):
                 try:
-                    # Check if directory is old enough to clean
                     dir_mtime = os.path.getmtime(item_path)
                     if dir_mtime < cutoff_time:
                         shutil.rmtree(item_path)
@@ -407,8 +487,7 @@ st.markdown("Simple wrapper around some helpful scripts whose intent is to facil
 st.header("Get Panoramas")
 st.write("Download panoramic images from street view services")
 
-# Settings section at the top
-
+# Settings section
 settings_col1, settings_col2= st.columns(2)
 with settings_col1:
     num_panos = st.number_input("Number of Panoramas", min_value=1, max_value=500, value=3)
@@ -421,13 +500,11 @@ st.markdown("---")
 # Location selection section
 st.subheader("Select Location")
 
-# Initialize session state
 if 'selected_lat' not in st.session_state:
     st.session_state.selected_lat = 42.3644583
 if 'selected_lon' not in st.session_state:
     st.session_state.selected_lon = -71.0830152
 
-# Full-width map
 curr_pos = [st.session_state.selected_lat, st.session_state.selected_lon]
 
 m = folium.Map(
@@ -445,16 +522,14 @@ folium.Marker(
 
 folium.Circle(
     location=curr_pos,
-    radius=100,  # Increased radius for better visibility
+    radius=100,
     fillColor='blue',
     fillOpacity=0.05,
     opacity=0.1,
 ).add_to(m)
 
-# Full-width map
 map_data = st_folium(m, key="panorama_map", height=800, width=None)
 
-# Update coordinates when map is clicked
 if map_data['last_clicked'] is not None:
     st.session_state.selected_lat = map_data['last_clicked']['lat']
     st.session_state.selected_lon = map_data['last_clicked']['lng']
@@ -465,155 +540,96 @@ st.markdown("---")
 # Download section
 st.subheader("🚀 Download Panoramas")
 
-# Centered download button
 col1, col2, col3 = st.columns([1, 2, 1])
 if 'recent_files' not in st.session_state:
     st.session_state.recent_files = None
 
 with col2:
     if st.button("📥 Start Download", type="primary", use_container_width=True):
-        with st.spinner(f"Downloading {num_panos} panoramas from Apple Lookaround..."):
-            # Determine script
-            script_name = "get_lookaround.py" 
+        
+        result = run_function_with_progress(
+            get_lookaround_panoramas,
+            title=f"Downloading {num_panos} panoramas",
+            target_lat=st.session_state.selected_lat,
+            target_lon=st.session_state.selected_lon,
+            out_dir=st.session_state.output_dir,
+            num_panos=num_panos,
+            zoom=zoom_level
+        )
+        
+        if result["success"]:
+            st.success("✅ Download completed successfully!") 
             
-            script_path = os.path.join(st.session_state.scripts_dir, script_name)
-
-            cmd = [ 
-                sys.executable,
-                script_path,
-                str(st.session_state.selected_lat),
-                str(st.session_state.selected_lon),
-                str(st.session_state.output_dir),
-                str(num_panos),
-                str(zoom_level),
-                ]
-            result = run_script_with_output_dir(
-                cmd=cmd,
-                output_dir=st.session_state.output_dir,
-                title=f"Downloading {num_panos} panos",
-                timeout=240,
-            )
+            if result["output"]:
+                with st.expander("📋 View Download Summary"):
+                    st.text(result["output"])
             
-            st.info(f"🔄 Running: {' '.join([os.path.basename(p) for p in cmd])}")
-
-            try:
-                result = run_script_realtime(
-                    cmd=cmd,
-                    title=f"Downloading {num_panos}...",
-                    timeout=240,
-                    success_keywords=["panorama(s)"].extend("Successfully processed".split())
-                )
-
-                if result["success"]:
-                    st.success("✅ Download completed successfully!") 
-                    # Show script output
-                    if result["output"]:
-                        with st.expander("📋 View Script Output"):
-                            st.text(result["output"])
+            # Display the newly downloaded images
+            st.markdown("---")
+            st.subheader("🖼️ Downloaded Panoramas")
+            
+            downloaded_files = result["downloaded_files"]
+            
+            if downloaded_files:
+                # Create recent_files format
+                import time
+                current_time = time.time()
+                st.session_state.recent_files = []
+                
+                for file_path in downloaded_files:
+                    file = os.path.basename(file_path)
+                    mod_time = os.path.getmtime(file_path)
+                    st.session_state.recent_files.append((mod_time, file, file_path))
+                
+                st.success(f"🎉 Successfully downloaded {len(st.session_state.recent_files)} new panoramas!")
+                
+                # Display images in a nice grid
+                if len(st.session_state.recent_files) == 1:
+                    mod_time, file, file_path = st.session_state.recent_files[0]
+                    download_time = time.strftime('%H:%M:%S', time.localtime(mod_time))
+                    st.image(file_path, caption=f"📸 {file} (Downloaded: {download_time})", use_container_width=True)
                     
-                    # Display the newly downloaded images
-                    st.markdown("---")
-                    st.subheader("🖼️ Downloaded Panoramas")
-                    
-                    out_dir = st.session_state.output_dir
-                    
-                    if os.path.exists(out_dir):
-                        # Get all image files
-                        all_files = [f for f in os.listdir(out_dir) if f.endswith(('.jpg', '.jpeg', '.png'))]
-                        
-                        if all_files:
-                            # Sort files by modification time (newest first)
-                            import time
-                            files_with_time = []
-                            current_time = time.time()
-                            
-                            for file in all_files:
-                                file_path = os.path.join(out_dir, file)
-                                mod_time = os.path.getmtime(file_path)
-                                files_with_time.append((mod_time, file, file_path))
-                            
-                            # Sort by modification time (newest first)
-                            files_with_time.sort(reverse=True)
-                            
-                            # Show only recently created files (within last 2 minutes)
-                            st.session_state.recent_files = [
-                                (mod_time, file, file_path) 
-                                for mod_time, file, file_path in files_with_time 
-                                if current_time - mod_time < 120
-                            ]
-                            if st.session_state.recent_files:
-                                st.success(f"🎉 Successfully downloaded {len(st.session_state.recent_files)} new panoramas!")
-                                
-                                # Display images in a nice grid
-                                if len(st.session_state.recent_files) == 1:
-                                    # Single image - show large
-                                    mod_time, file, file_path = st.session_state.recent_files[0]
-                                    download_time = time.strftime('%H:%M:%S', time.localtime(mod_time))
-                                    st.image(file_path, caption=f"📸 {file} (Downloaded: {download_time})", use_container_width=True)
-                                    
-                                elif len(st.session_state.recent_files) <= 3:
-                                    # Few images - show in columns
-                                    cols = st.columns(len(st.session_state.recent_files))
-                                    for i, (mod_time, file, file_path) in enumerate(st.session_state.recent_files):
-                                        download_time = time.strftime('%H:%M:%S', time.localtime(mod_time))
-                                        cols[i].image(file_path, caption=f"📸 #{i+1}\n{download_time}", use_container_width=True)
-                                        
-                                else:
-                                    # Many images - show in grid of 3 columns
-                                    for i in range(0, len(st.session_state.recent_files), 3):
-                                        cols = st.columns(3)
-                                        for j, col in enumerate(cols):
-                                            if i + j < len(st.session_state.recent_files):
-                                                mod_time, file, file_path = st.session_state.recent_files[i + j]
-                                                download_time = time.strftime('%H:%M:%S', time.localtime(mod_time))
-                                                col.image(file_path, caption=f"📸 #{i+j+1}\n{download_time}", use_container_width=True)
-                                
-                                # File details
-                                with st.expander("📁 File Details"):
-                                    for mod_time, file, file_path in st.session_state.recent_files:
-                                        file_size = os.path.getsize(file_path)
-                                        download_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(mod_time))
-                                        st.write(f"📄 **{file}** - {file_size:,} bytes - Downloaded: {download_time}")
-                                    
-                                    # Show output directory
-                                    st.write(f"📂 **Output Directory:** `{out_dir}`")
-                            
-                            else:
-                                st.warning("⚠️ No recently downloaded files found. Showing most recent files:")
-                                # Show the 3 most recent files anyway
-                                for i, (mod_time, file, file_path) in enumerate(files_with_time[:3]):
-                                    download_time = time.strftime('%H:%M:%S', time.localtime(mod_time))
-                                    st.image(file_path, caption=f"📸 {file} (Modified: {download_time})", width=400)
-                        else:
-                            st.warning("📁 No image files found in output directory")
-                    else:
-                        st.warning("📁 Output directory not found")
+                elif len(st.session_state.recent_files) <= 3:
+                    cols = st.columns(len(st.session_state.recent_files))
+                    for i, (mod_time, file, file_path) in enumerate(st.session_state.recent_files):
+                        download_time = time.strftime('%H:%M:%S', time.localtime(mod_time))
+                        cols[i].image(file_path, caption=f"📸 #{i+1}\n{download_time}", use_container_width=True)
                         
                 else:
-                    st.error("❌ Download failed!")
-                    st.text(result["output"])
-                    #if result.stderr:
-                    #    with st.expander("🔍 Error Details"):
-                    #        st.text(result.stderr)
+                    for i in range(0, len(st.session_state.recent_files), 3):
+                        cols = st.columns(3)
+                        for j, col in enumerate(cols):
+                            if i + j < len(st.session_state.recent_files):
+                                mod_time, file, file_path = st.session_state.recent_files[i + j]
+                                download_time = time.strftime('%H:%M:%S', time.localtime(mod_time))
+                                col.image(file_path, caption=f"📸 #{i+j+1}\n{download_time}", use_container_width=True)
+                
+                # File details
+                with st.expander("📁 File Details"):
+                    for mod_time, file, file_path in st.session_state.recent_files:
+                        file_size = os.path.getsize(file_path)
+                        download_time = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(mod_time))
+                        st.write(f"📄 **{file}** - {file_size:,} bytes - Downloaded: {download_time}")
+                    
+                    st.write(f"📂 **Output Directory:** `{st.session_state.output_dir}`")
+            else:
+                st.warning("📁 No image files were downloaded")
+                
+        else:
+            st.error("❌ Download failed!")
+            st.text(result["output"])
 
-            except subprocess.TimeoutExpired:
-                st.error("⏰ Download timed out (took longer than 2 minutes)")
-            except Exception as e:
-                st.error(f"💥 Unexpected error: {str(e)}")
 st.markdown("---")
 st.subheader("🔄 Convert to Perspective Views")
 st.write("Split panoramas into multiple perspective views for 3D reconstruction")
 
 if st.session_state.recent_files:
     st.write(f"📋 Ready to process {len(st.session_state.recent_files)} panorama(s)")
-    for _, file, _ in st.session_state.recent_files:  # Fixed: was *, file, * 
+    for _, file, _ in st.session_state.recent_files:
         st.write(f"• {file}")
     
     if st.button("🎯 Split to Perspectives", type="secondary", use_container_width=True):
-        st.write("DEBUG: Split button clicked!")
-        st.write(f"DEBUG: st.session_state.recent_files = {len(st.session_state.recent_files) if st.session_state.recent_files else 'None'}")
-        st.write(f"DEBUG: upper_dir = {st.session_state.scripts_dir}")
-        split_panoramas_to_perspective(st.session_state.recent_files, st.session_state.scripts_dir)
+        split_panoramas_to_perspective(st.session_state.recent_files)
 else:
     st.write("**Or upload panoramas to split:**")
     uploaded_panos = st.file_uploader(
@@ -626,19 +642,16 @@ else:
     if uploaded_panos:
         st.success(f"✅ Uploaded {len(uploaded_panos)} panorama(s)")
         
-        # Save uploaded files temporarily and process them
         temp_dir = os.path.join(st.session_state.temp_dir, "uploads")
         os.makedirs(temp_dir, exist_ok=True)
         
         uploaded_file_paths = []
         for pano in uploaded_panos:
-            # Save uploaded file
             temp_file_path = os.path.join(temp_dir, pano.name)
             with open(temp_file_path, "wb") as f:
                 f.write(pano.getbuffer())
-            uploaded_file_paths.append((None, pano.name, temp_file_path))  # Match recent_files format
+            uploaded_file_paths.append((None, pano.name, temp_file_path))
         
-        # Show upload preview
         preview_col1, preview_col2 = st.columns([3, 1])
         with preview_col1:
             st.write("**Uploaded files:**")
@@ -647,7 +660,7 @@ else:
         
         with preview_col2:
             if st.button("🎯 Split Uploaded Panoramas", type="secondary", use_container_width=True):
-                split_panoramas_to_perspective(st.session_state.recent_files, st.session_state.scripts_dir)
+                split_panoramas_to_perspective(uploaded_file_paths)
 
 if (st.session_state.recent_files or 
     (os.path.exists(st.session_state.output_dir) and 
@@ -656,7 +669,6 @@ if (st.session_state.recent_files or
     st.markdown("---")
     st.subheader("📥 Download Results")
     
-    # Check output directory contents
     total_files = 0
     if os.path.exists(st.session_state.output_dir):
         for root, dirs, files in os.walk(st.session_state.output_dir):
@@ -677,7 +689,6 @@ if (st.session_state.recent_files or
                     if zip_result:
                         zip_path, zip_filename = zip_result
                         
-                        # Read zip file for download
                         with open(zip_path, "rb") as f:
                             zip_data = f.read()
                         
@@ -689,7 +700,6 @@ if (st.session_state.recent_files or
                             use_container_width=True
                         )
                         
-                        # Show zip info
                         zip_size = len(zip_data)
                         st.success(f"✅ ZIP created: {zip_filename} ({zip_size:,} bytes)")
                         
