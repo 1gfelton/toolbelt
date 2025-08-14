@@ -373,7 +373,7 @@ def cleanup_old_sessions(base_temp, max_age_hours=24):
     except:
         pass
 
-def cleanup_session(temp_dir):
+def cleanup_session():
     """Clean up current session directory"""
     if session_temp_dir is None and 'temp_dir' in st.session_state:
         session_temp_dir = st.session_state.temp_dir
