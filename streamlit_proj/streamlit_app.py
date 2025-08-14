@@ -402,13 +402,11 @@ st.write("Download panoramic images from street view services")
 
 # Settings section at the top
 
-settings_col1, settings_col2, settings_col3 = st.columns(3)
+settings_col1, settings_col2= st.columns(2)
 with settings_col1:
     num_panos = st.number_input("Number of Panoramas", min_value=1, max_value=500, value=3)
 with settings_col2:
     zoom_level = st.selectbox("Zoom Level", options=[0, 1, 2, 3, 4, 5], index=2)
-with settings_col3:
-    service = st.selectbox("Service", ["Google Street View", "Apple Look Around"])
 st.write("You can download a maximum of 500 panoramas at a time.")
 st.write("For Apple: the lower the zoom level, the higher the quality.")
 st.write("For Google: the lower the zoom level, the lower the quality.")
@@ -462,9 +460,6 @@ st.markdown("---")
 # Download section
 st.subheader("🚀 Download Panoramas")
 
-# Summary before download
-st.info(f"📋 Ready to download {num_panos} panoramas from {service} at zoom level {zoom_level}")
-
 # Centered download button
 col1, col2, col3 = st.columns([1, 2, 1])
 if 'recent_files' not in st.session_state:
@@ -472,9 +467,9 @@ if 'recent_files' not in st.session_state:
 
 with col2:
     if st.button("📥 Start Download", type="primary", use_container_width=True):
-        with st.spinner(f"Downloading {num_panos} panoramas from {service}..."):
+        with st.spinner(f"Downloading {num_panos} panoramas from Apple Lookaround..."):
             # Determine script
-            script_name = "get_lookaround.py" if "Apple" in service else "get_streetview.py"
+            script_name = "get_lookaround.py" 
             
             script_path = os.path.join(st.session_state.scripts_dir, script_name)
 
