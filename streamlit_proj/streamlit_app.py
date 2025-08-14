@@ -18,6 +18,13 @@ try:
 except ImportError:
     pass
 
+@st.cache_resource
+def load_heavy_modules():
+    import cv2
+    import numpy as np
+    import torch
+    import torchvision
+
 def run_script_with_output_dir(cmd, output_dir, title="Running Script", timeout=120):
     """Run script with custom output directory"""
     # Modify command to include output directory
@@ -408,8 +415,6 @@ with settings_col1:
 with settings_col2:
     zoom_level = st.selectbox("Zoom Level", options=[0, 1, 2, 3, 4, 5], index=2)
 st.write("You can download a maximum of 500 panoramas at a time.")
-st.write("For Apple: the lower the zoom level, the higher the quality.")
-st.write("For Google: the lower the zoom level, the lower the quality.")
 
 st.markdown("---")
 
