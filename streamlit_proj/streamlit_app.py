@@ -373,7 +373,7 @@ def cleanup_old_sessions(base_temp, max_age_hours=24):
     except:
         pass
 
-def cleanup_session():
+def cleanup_session(session_temp_dir):
     """Clean up current session directory"""
     if session_temp_dir is None and 'temp_dir' in st.session_state:
         session_temp_dir = st.session_state.temp_dir
@@ -707,6 +707,6 @@ if st.session_state.get("cleanup_registered", False):
         st.markdown('---')
         st.subheader('Session Management')
         if st.button('Clear Session Files', help="Delete all files from the session"):
-            cleanup_session()
+            cleanup_session(st.session_state.temp_dir)
             st.success("Session files cleared!")
             st.rerun()
