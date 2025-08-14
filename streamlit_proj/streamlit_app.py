@@ -12,6 +12,73 @@ try:
 except ImportError:
     pass
 
+def run_script_realtime(cmd, title="Running Script", timeout=120, success_keywords=None):
+    """
+    Run a script with real-time output display in Streamlit
+    
+    Args:
+        cmd: List of command arguments (e.g., [sys.executable, script_path, arg1, arg2])
+        title: Display title for the progress area
+        timeout: Timeout in seconds
+        success_keywords: List of strings to check for success (default: ["Successfully", "100%", "completed"])
+    
+    Returns:
+        dict: {"success": bool, "output": str, "returncode": int}
+    """
+    if success_keywords is None:
+        success_keywords = ["Successfully", "100%", "completed", "SUCCESS"]
+    
+    st.info(f"🔄 {title}...")
+    output_placeholder = st.empty()
+    progress_lines = []
+    
+    try:
+        process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,  # Merge stderr into stdout
+            text=True,
+            bufsize=1,
+            universal_newlines=True
+        )
+        
+        # Read output line by line in real-time
+        for line in iter(process.stdout.readline, ''):
+            if line.strip():
+                progress_lines.append(line.strip())
+                
+                # Show last 10 lines in real-time
+                recent_output = '\n'.join(progress_lines[-10:])
+                output_placeholder.text_area(
+                    f"📡 {title}:", 
+                    recent_output, 
+                    height=150,
+                    disabled=True
+                )
+        
+        process.wait()
+        
+        # Clear the output placeholder
+        output_placeholder.empty()
+        
+        # Check for success
+        full_output = '\n'.join(progress_lines)
+        has_success_keywords = any(keyword in full_output for keyword in success_keywords)
+        success = process.returncode == 0 or has_success_keywords
+        
+        return {
+            "success": success,
+            "output": full_output,
+            "returncode": process.returncode
+        }
+        
+    except subprocess.TimeoutExpired:
+        st.error(f"⏰ {title} timed out after {timeout} seconds")
+        return {"success": False, "output": "", "returncode": -1}
+    except Exception as e:
+        st.error(f"💥 Error running script: {str(e)}")
+        return {"success": False, "output": str(e), "returncode": -1}
+
 def split_panoramas_to_perspective(recent_files, upper_dir):
     """Split panoramas into perspective views using to_perspective.py"""
     
@@ -36,11 +103,17 @@ def split_panoramas_to_perspective(recent_files, upper_dir):
             # Run to_perspective.py on this file
             cmd = [sys.executable, script_path, file_path]
             
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=240)
+            #result = subprocess.run(cmd, capture_output=True, text=True, timeout=240)
+            st.info(f"Starting Download...")
+            result = run_script_realtime(
+                cmd=cmd,
+                title=f"Processing {filename}...",
+                timeout=500,
+                success_keywords=['SUCCESS'].extend("Perspective conversion complete".split())
+            )
             
-            if result.returncode == 0:
-                processed_successfully += 1
-                status_placeholder.success(f"✅ Processed {file}")
+            if result["success"]:
+                processed_successfully+=1
             else:
                 status_placeholder.error(f"❌ Failed to process {file}")
                 if result.stderr:
@@ -112,6 +185,7 @@ def show_perspective_results(recent_files, upper_dir):
                 st.warning(f"⚠️ No perspective views found for {file}")
         else:
             st.warning(f"⚠️ Output directory not found for {file}")
+
 def run_simple_test(script_name):
     upper_dir = os.path.dirname(os.getcwd())
     script_path = os.path.join(upper_dir, "scripts", script_name)
@@ -258,15 +332,19 @@ elif tool_choice == "Get Panoramas":
                 st.info(f"🔄 Running: {' '.join([os.path.basename(p) for p in cmd])}")
 
                 try:
-                    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-                    
-                    if result.returncode == 0:
-                        st.success("✅ Download completed successfully!")
-                        
+                    result = run_script_realtime(
+                        cmd=cmd,
+                        title=f"Downloading {num_panos}...",
+                        timeout=240,
+                        success_keywords=["panorama(s)"].extend("Successfully processed".split())
+                    )
+
+                    if result["success"]:
+                        st.success("✅ Download completed successfully!") 
                         # Show script output
-                        if result.stdout:
+                        if result["output"]:
                             with st.expander("📋 View Script Output"):
-                                st.text(result.stdout)
+                                st.text(result["output"])
                         
                         # Display the newly downloaded images
                         st.markdown("---")
@@ -348,9 +426,10 @@ elif tool_choice == "Get Panoramas":
                             
                     else:
                         st.error("❌ Download failed!")
-                        if result.stderr:
-                            with st.expander("🔍 Error Details"):
-                                st.text(result.stderr)
+                        st.text(result["output"])
+                        #if result.stderr:
+                        #    with st.expander("🔍 Error Details"):
+                        #        st.text(result.stderr)
 
                 except subprocess.TimeoutExpired:
                     st.error("⏰ Download timed out (took longer than 2 minutes)")
@@ -455,7 +534,7 @@ elif tool_choice == "Get Panoramas":
                         # Show recent output (last 3 lines)
                         recent_output = '\n'.join(output_lines[-3:])
                         output_placeholder.text_area(
-                            f"Processing {filename}:", 
+                            f"Processing {file}:", 
                             recent_output, 
                             height=80,
                             disabled=True
