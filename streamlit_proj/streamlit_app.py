@@ -341,7 +341,15 @@ def initialize_session():
         # User-specific directory
         st.session_state.temp_dir = os.path.join(base_temp, f"user_{st.session_state.session_id}")
         st.session_state.output_dir = os.path.join(st.session_state.temp_dir, "output")
-        st.session_state.scripts_dir = os.path.join(os.path.dirname(os.getcwd()), "scripts")
+        #st.session_state.scripts_dir = os.path.join(os.path.dirname(os.getcwd()), "scripts")
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+        project_root = os.path.dirname(app_dir)
+        st.session_state.scripts_dir = os.path.join(project_root, "scripts")
+        if not os.path.exists(st.session_state.scripts_dir):
+            st.error(f"Scripts dir not found at {st.session_state.scripts_dir}")
+            st.write(f"Current app dir: {app_dir}")
+            st.write(f"Project root: {project_root}")
+            st.stop()
         
         # Ensure directories exist
         os.makedirs(st.session_state.output_dir, exist_ok=True)
