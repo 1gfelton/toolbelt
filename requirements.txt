@@ -10,3 +10,4 @@ py360convert
 opencv-python
 Werkzeug
 pyinstaller
+folium
