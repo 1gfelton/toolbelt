@@ -17,9 +17,9 @@ try:
     from streamlit_folium import st_folium
 except ImportError:
     pass
+
 def run_script_with_output_dir(cmd, output_dir, title="Running Script", timeout=120):
     """Run script with custom output directory"""
-    
     # Modify command to include output directory
     modified_cmd = cmd + [output_dir]
     
@@ -499,19 +499,6 @@ with col2:
                 )
 
                 if result["success"]:
-                    pass
-                #    script_output_dir = os.path.join(os.path.dirname(os.getcwd()), "data", "output")
-                #    if os.path.exists(script_output_dir):
-                #        import time
-                #        current_time = time.time()
-                #        for file in os.listdir(script_output_dir):
-                #            if file.endswith(('.jpg', '.jpeg', '.png')):
-                #                src_path = os.path.join(script_output_dir, file)
-                #                # Only copy recent files (within last 2 minutes)
-                #                if current_time - os.path.getmtime(src_path) < 120:
-                #                    dst_path = os.path.join(st.session_state.output_dir, file)
-                #                    shutil.copy2(src_path, dst_path)
-    
                     st.success("✅ Download completed successfully!") 
                     # Show script output
                     if result["output"]:
