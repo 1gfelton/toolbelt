@@ -16,8 +16,9 @@ if len(sys.argv) < 3:
 try:
     target_lat = float(sys.argv[1])
     target_lon = float(sys.argv[2])
-    num_panos = int(sys.argv[3]) 
-    zoom = int(sys.argv[4]) if len(sys.argv) > 4 else 2
+    out_dir = float(sys.argv[3])
+    num_panos = int(sys.argv[4]) 
+    zoom = int(sys.argv[5]) if len(sys.argv) > 4 else 2
 except ValueError:
     print("Error: Latitude and longitude must be valid numbers, num_panos must be a valid integer.")
     sys.exit(1)

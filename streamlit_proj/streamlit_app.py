@@ -478,6 +478,7 @@ with col2:
                 script_path,
                 str(st.session_state.selected_lat),
                 str(st.session_state.selected_lon),
+                str(st.session_state.output_dir),
                 str(num_panos),
                 str(zoom_level),
                 ]
