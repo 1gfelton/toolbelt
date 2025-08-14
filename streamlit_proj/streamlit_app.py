@@ -9,12 +9,93 @@ import tempfile
 import uuid
 import atexit
 import shutil
+import zipfile
+from datetime import datetime
 
 try:
     import folium
     from streamlit_folium import st_folium
 except ImportError:
     pass
+def run_script_with_output_dir(cmd, output_dir, title="Running Script", timeout=120):
+    """Run script with custom output directory"""
+    
+    # Modify command to include output directory
+    modified_cmd = cmd + [output_dir]
+    
+    st.info(f"🔄 {title}...")
+    output_placeholder = st.empty()
+    progress_lines = []
+    
+    try:
+        # Set environment variable for scripts to use
+        env = os.environ.copy()
+        env['PANORAMA_OUTPUT_DIR'] = output_dir
+        
+        process = subprocess.Popen(
+            modified_cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
+            universal_newlines=True,
+            env=env
+        )
+        
+        for line in iter(process.stdout.readline, ''):
+            if line.strip():
+                progress_lines.append(line.strip())
+                
+                recent_output = '\n'.join(progress_lines[-10:])
+                output_placeholder.text_area(
+                    f"📡 {title}:", 
+                    recent_output, 
+                    height=150,
+                    disabled=True
+                )
+        
+        process.wait()
+        output_placeholder.empty()
+        
+        full_output = '\n'.join(progress_lines)
+        success_keywords = ["Successfully", "100%", "completed", "SUCCESS"]
+        has_success_keywords = any(keyword in full_output for keyword in success_keywords)
+        success = process.returncode == 0 or has_success_keywords
+        
+        return {
+            "success": success,
+            "output": full_output,
+            "returncode": process.returncode
+        }
+        
+    except Exception as e:
+        st.error(f"💥 Error running script: {str(e)}")
+        return {"success": False, "output": str(e), "returncode": -1}
+
+def create_output_zip():
+    """Creates a zip file of the current output directory"""
+    if not (os.path.exists(st.session_state.output_dir)):
+        return None
+    
+    all_files = []
+    for root, dirs, files in os.walk(st.session_state.output_dir):
+        for file in files:
+            all_files.append(os.path.join(root, file))
+    
+    if not all_files:
+        return None
+    
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    zip_filename = f"panorama_session_{st.session_state.session_id}_{timestamp}.zip"
+    zip_path = os.path.join(st.session_state.temp_dir, zip_filename)
+    
+    with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+        for file_path in all_files:
+            # Add file to zip with relative path from output_dir
+            arcname = os.path.relpath(file_path, st.session_state.output_dir)
+            zipf.write(file_path, arcname)
+    
+    return zip_path, zip_filename
 
 def split_panoramas_to_perspective(file_list, scripts_dir):
     """Split panoramas into perspective views using to_perspective.py"""
@@ -249,24 +330,59 @@ st.set_page_config(
         )
 
 def initialize_session():
-    """Initialize user session with unique temp directory"""
+    """Initialize user session with proper isolation"""
     if 'session_id' not in st.session_state:
         st.session_state.session_id = str(uuid.uuid4())[:8]
-        st.session_state.temp_dir = tempfile.mkdtemp(prefix=f"panorama_{st.session_state.session_id}_")
+        
+        # Create base temp directory with better naming
+        base_temp = os.path.join(tempfile.gettempdir(), "panorama_app")
+        os.makedirs(base_temp, exist_ok=True)
+        
+        # User-specific directory
+        st.session_state.temp_dir = os.path.join(base_temp, f"user_{st.session_state.session_id}")
         st.session_state.output_dir = os.path.join(st.session_state.temp_dir, "output")
         st.session_state.scripts_dir = os.path.join(os.path.dirname(os.getcwd()), "scripts")
-        os.makedirs(st.session_state.output_dir, exist_ok=True)
         
-        # Register cleanup on exit
-        atexit.register(cleanup_session, st.session_state.temp_dir)
+        # Ensure directories exist
+        os.makedirs(st.session_state.output_dir, exist_ok=True)
+        os.makedirs(os.path.join(st.session_state.temp_dir, "script_output"), exist_ok=True)
+        
+        # Clean up old sessions on startup
+        cleanup_old_sessions(base_temp)
+        
+        # Store cleanup flag for proper session management
+        st.session_state.cleanup_registered = True
 
-def cleanup_session(temp_dir):
-    """Clean up temporary directory"""
+def cleanup_old_sessions(base_temp, max_age_hours=24):
+    """Clean up temp directories older than max_age_hours"""
     try:
-        if os.path.exists(temp_dir):
-            shutil.rmtree(temp_dir)
+        import time
+        current_time = time.time()
+        cutoff_time = current_time - (max_age_hours * 3600)
+        
+        for item in os.listdir(base_temp):
+            item_path = os.path.join(base_temp, item)
+            if os.path.isdir(item_path) and item.startswith("user_"):
+                try:
+                    # Check if directory is old enough to clean
+                    dir_mtime = os.path.getmtime(item_path)
+                    if dir_mtime < cutoff_time:
+                        shutil.rmtree(item_path)
+                except:
+                    continue
     except:
         pass
+
+def cleanup_session(temp_dir):
+    """Clean up current session directory"""
+    if session_temp_dir is None and 'temp_dir' in st.session_state:
+        session_temp_dir = st.session_state.temp_dir
+    
+    if session_temp_dir and os.path.exists(session_temp_dir):
+        try:
+            shutil.rmtree(session_temp_dir)
+        except:
+            pass
 
 initialize_session()
 
@@ -353,15 +469,21 @@ with col2:
             script_name = "get_lookaround.py" if "Apple" in service else "get_streetview.py"
             
             script_path = os.path.join(st.session_state.scripts_dir, script_name)
-            
-            cmd = [
+
+            cmd = [ 
                 sys.executable,
                 script_path,
                 str(st.session_state.selected_lat),
                 str(st.session_state.selected_lon),
                 str(num_panos),
                 str(zoom_level),
-            ]
+                ]
+            result = run_script_with_output_dir(
+                cmd=cmd,
+                output_dir=st.session_state.output_dir,
+                title=f"Downloading {num_panos} panos",
+                timeout=240,
+            )
             
             st.info(f"🔄 Running: {' '.join([os.path.basename(p) for p in cmd])}")
 
@@ -374,17 +496,18 @@ with col2:
                 )
 
                 if result["success"]:
-                    script_output_dir = os.path.join(os.path.dirname(os.getcwd()), "data", "output")
-                    if os.path.exists(script_output_dir):
-                        import time
-                        current_time = time.time()
-                        for file in os.listdir(script_output_dir):
-                            if file.endswith(('.jpg', '.jpeg', '.png')):
-                                src_path = os.path.join(script_output_dir, file)
-                                # Only copy recent files (within last 2 minutes)
-                                if current_time - os.path.getmtime(src_path) < 120:
-                                    dst_path = os.path.join(st.session_state.output_dir, file)
-                                    shutil.copy2(src_path, dst_path)
+                    pass
+                #    script_output_dir = os.path.join(os.path.dirname(os.getcwd()), "data", "output")
+                #    if os.path.exists(script_output_dir):
+                #        import time
+                #        current_time = time.time()
+                #        for file in os.listdir(script_output_dir):
+                #            if file.endswith(('.jpg', '.jpeg', '.png')):
+                #                src_path = os.path.join(script_output_dir, file)
+                #                # Only copy recent files (within last 2 minutes)
+                #                if current_time - os.path.getmtime(src_path) < 120:
+                #                    dst_path = os.path.join(st.session_state.output_dir, file)
+                #                    shutil.copy2(src_path, dst_path)
     
                     st.success("✅ Download completed successfully!") 
                     # Show script output
@@ -529,3 +652,61 @@ else:
         with preview_col2:
             if st.button("🎯 Split Uploaded Panoramas", type="secondary", use_container_width=True):
                 split_panoramas_to_perspective(st.session_state.recent_files, st.session_state.scripts_dir)
+
+if (st.session_state.recent_files or 
+    (os.path.exists(st.session_state.output_dir) and 
+     os.listdir(st.session_state.output_dir))):
+    
+    st.markdown("---")
+    st.subheader("📥 Download Results")
+    
+    # Check output directory contents
+    total_files = 0
+    if os.path.exists(st.session_state.output_dir):
+        for root, dirs, files in os.walk(st.session_state.output_dir):
+            total_files += len(files)
+    
+    if total_files > 0:
+        st.write(f"📦 Your session contains {total_files} files ready for download")
+        
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            st.write("Download all generated panoramas and perspective views as a ZIP file")
+        
+        with col2:
+            if st.button("📦 Create & Download ZIP", type="primary", use_container_width=True):
+                with st.spinner("Creating ZIP file..."):
+                    zip_result = create_output_zip()
+                    
+                    if zip_result:
+                        zip_path, zip_filename = zip_result
+                        
+                        # Read zip file for download
+                        with open(zip_path, "rb") as f:
+                            zip_data = f.read()
+                        
+                        st.download_button(
+                            label="⬇️ Download ZIP",
+                            data=zip_data,
+                            file_name=zip_filename,
+                            mime="application/zip",
+                            use_container_width=True
+                        )
+                        
+                        # Show zip info
+                        zip_size = len(zip_data)
+                        st.success(f"✅ ZIP created: {zip_filename} ({zip_size:,} bytes)")
+                        
+                    else:
+                        st.error("❌ No files found to zip")
+    else:
+        st.info("📭 No files generated yet. Download panoramas or create perspectives first.")
+
+if st.session_state.get("cleanup_registered", False):
+    with st.sidebar:
+        st.markdown('---')
+        st.subheader('Session Management')
+        if st.button('Clear Session Files', help="Delete all files from the session"):
+            cleanup_session()
+            st.success("Session files cleared!")
+            st.rerun()
