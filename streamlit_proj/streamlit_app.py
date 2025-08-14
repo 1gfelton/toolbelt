@@ -12,6 +12,98 @@ try:
 except ImportError:
     pass
 
+def split_panoramas_to_perspective(file_list, upper_dir):
+    """Split panoramas into perspective views using to_perspective.py"""
+    
+    script_name = "to_perspective.py"
+    script_path = os.path.join(upper_dir, "scripts", script_name)
+    
+    if not os.path.exists(script_path):
+        st.error("❌ to_perspective.py script not found!")
+        st.write(f"Expected location: {script_path}")
+        return
+    
+    total_files = len(file_list)
+    st.info(f"🔄 Processing {total_files} panorama(s) into perspective views...")
+    
+    # Create progress tracking
+    progress_bar = st.progress(0)
+    status_placeholder = st.empty()
+    output_placeholder = st.empty()
+    
+    processed_successfully = 0
+    all_outputs = []
+    
+    for i, (mod_time, filename, file_path) in enumerate(file_list):
+        status_placeholder.info(f"🎯 Processing {filename} ({i+1}/{total_files})")
+        
+        try:
+            # Your to_perspective.py script expects just the file path
+            cmd = [sys.executable, script_path, file_path]
+            
+            # Run with real-time output capture
+            process = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+                universal_newlines=True
+            )
+            
+            # Collect output lines
+            output_lines = []
+            for line in iter(process.stdout.readline, ''):
+                if line.strip():
+                    output_lines.append(line.strip())
+                    
+                    # Show recent output (last 3 lines)
+                    recent_output = '\n'.join(output_lines[-3:])
+                    output_placeholder.text_area(
+                        f"Processing {filename}:", 
+                        recent_output, 
+                        height=80,
+                        disabled=True
+                    )
+            
+            process.wait()
+            
+            if process.returncode == 0:
+                processed_successfully += 1
+                status_placeholder.success(f"Completed {filename}")
+                all_outputs.extend(output_lines)
+            else:
+                status_placeholder.error(f"Failed to process {filename}")
+                with st.expander(f"Error details for {filename}"):
+                    st.text('\n'.join(output_lines))
+        
+        except subprocess.TimeoutExpired:
+            st.error(f"⏰ Processing {filename} timed out")
+        except Exception as e:
+            st.error(f"💥 Error processing {filename}: {str(e)}")
+        
+        # Update progress
+        progress_bar.progress((i + 1) / total_files)
+    
+    # Clear the output placeholder
+    output_placeholder.empty()
+    
+    # Final status and show results
+    if processed_successfully == total_files:
+        st.success(f"🎉 Successfully processed all {total_files} panorama(s)!")
+        st.balloons()
+        show_perspective_results(file_list, upper_dir)
+    elif processed_successfully > 0:
+        st.warning(f"⚠️ Processed {processed_successfully}/{total_files} panorama(s)")
+        show_perspective_results(file_list, upper_dir)
+    else:
+        st.error("❌ Failed to process any panoramas")
+    
+    # Show complete processing log
+    if all_outputs:
+        with st.expander("📄 Complete Processing Log"):
+            st.text('\n'.join(all_outputs))
+
 def run_script_realtime(cmd, title="Running Script", timeout=120, success_keywords=None):
     """
     Run a script with real-time output display in Streamlit
@@ -79,65 +171,6 @@ def run_script_realtime(cmd, title="Running Script", timeout=120, success_keywor
         st.error(f"💥 Error running script: {str(e)}")
         return {"success": False, "output": str(e), "returncode": -1}
 
-def split_panoramas_to_perspective(recent_files, upper_dir):
-    """Split panoramas into perspective views using to_perspective.py"""
-    
-    script_path = os.path.join(upper_dir, "scripts", "to_perspective.py")
-    
-    if not os.path.exists(script_path):
-        st.error("❌ to_perspective.py script not found!")
-        return
-    
-    st.info(f"🔄 Processing {len(recent_files)} panorama(s)...")
-    
-    progress_bar = st.progress(0)
-    status_placeholder = st.empty()
-    
-    total_files = len(recent_files)
-    processed_successfully = 0
-    
-    for i, (mod_time, file, file_path) in enumerate(recent_files):
-        status_placeholder.info(f"🎯 Processing {file} ({i+1}/{total_files})")
-        
-        try:
-            # Run to_perspective.py on this file
-            cmd = [sys.executable, script_path, file_path]
-            
-            #result = subprocess.run(cmd, capture_output=True, text=True, timeout=240)
-            st.info(f"Starting Download...")
-            result = run_script_realtime(
-                cmd=cmd,
-                title=f"Processing {filename}...",
-                timeout=500,
-                success_keywords=['SUCCESS'].extend("Perspective conversion complete".split())
-            )
-            
-            if result["success"]:
-                processed_successfully+=1
-            else:
-                status_placeholder.error(f"❌ Failed to process {file}")
-                if result.stderr:
-                    with st.expander(f"Error details for {file}"):
-                        st.text(result.stderr)
-        
-        except subprocess.TimeoutExpired:
-            st.error(f"⏰ Processing {file} timed out")
-        except Exception as e:
-            st.error(f"💥 Error processing {file}: {str(e)}")
-        
-        # Update progress
-        progress_bar.progress((i + 1) / total_files)
-    
-    # Final status
-    if processed_successfully == total_files:
-        st.success(f"🎉 Successfully processed all {total_files} panorama(s)!")
-        show_perspective_results(recent_files, upper_dir)
-    elif processed_successfully > 0:
-        st.warning(f"⚠️ Processed {processed_successfully}/{total_files} panorama(s)")
-        show_perspective_results(recent_files, upper_dir)
-    else:
-        st.error("❌ Failed to process any panoramas")
-
 def show_perspective_results(recent_files, upper_dir):
     """Display the generated perspective views"""
     
@@ -148,7 +181,7 @@ def show_perspective_results(recent_files, upper_dir):
     
     for mod_time, file, file_path in recent_files:
         file_name = os.path.splitext(file)[0]
-        perspective_dir = os.path.join(base_output_dir, file_name)
+        perspective_dir = os.path.join(base_output_dir, "perspectives")
         
         if os.path.exists(perspective_dir):
             perspective_files = [f for f in os.listdir(perspective_dir) if f.endswith('.jpg') and '_split_' in f]
@@ -485,98 +518,6 @@ elif tool_choice == "Get Panoramas":
                     split_panoramas_to_perspective(uploaded_file_paths, upper_dir)
 
     # Add this function before your main app code (after imports):
-
-    def split_panoramas_to_perspective(file_list, upper_dir):
-        """Split panoramas into perspective views using to_perspective.py"""
-        
-        script_name = "to_perspective.py"
-        script_path = os.path.join(upper_dir, "scripts", script_name)
-        
-        if not os.path.exists(script_path):
-            st.error("❌ to_perspective.py script not found!")
-            st.write(f"Expected location: {script_path}")
-            return
-        
-        total_files = len(file_list)
-        st.info(f"🔄 Processing {total_files} panorama(s) into perspective views...")
-        
-        # Create progress tracking
-        progress_bar = st.progress(0)
-        status_placeholder = st.empty()
-        output_placeholder = st.empty()
-        
-        processed_successfully = 0
-        all_outputs = []
-        
-        for i, (mod_time, filename, file_path) in enumerate(file_list):
-            status_placeholder.info(f"🎯 Processing {filename} ({i+1}/{total_files})")
-            
-            try:
-                # Your to_perspective.py script expects just the file path
-                cmd = [sys.executable, script_path, file_path]
-                
-                # Run with real-time output capture
-                process = subprocess.Popen(
-                    cmd,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.STDOUT,
-                    text=True,
-                    bufsize=1,
-                    universal_newlines=True
-                )
-                
-                # Collect output lines
-                output_lines = []
-                for line in iter(process.stdout.readline, ''):
-                    if line.strip():
-                        output_lines.append(line.strip())
-                        
-                        # Show recent output (last 3 lines)
-                        recent_output = '\n'.join(output_lines[-3:])
-                        output_placeholder.text_area(
-                            f"Processing {file}:", 
-                            recent_output, 
-                            height=80,
-                            disabled=True
-                        )
-                
-                process.wait()
-                
-                if process.returncode == 0:
-                    processed_successfully += 1
-                    status_placeholder.success(f"Completed {filename}")
-                    all_outputs.extend(output_lines)
-                else:
-                    status_placeholder.error(f"Failed to process {filename}")
-                    with st.expander(f"Error details for {filename}"):
-                        st.text('\n'.join(output_lines))
-            
-            except subprocess.TimeoutExpired:
-                st.error(f"⏰ Processing {filename} timed out")
-            except Exception as e:
-                st.error(f"💥 Error processing {filename}: {str(e)}")
-            
-            # Update progress
-            progress_bar.progress((i + 1) / total_files)
-        
-        # Clear the output placeholder
-        output_placeholder.empty()
-        
-        # Final status and show results
-        if processed_successfully == total_files:
-            st.success(f"🎉 Successfully processed all {total_files} panorama(s)!")
-            st.balloons()
-            show_perspective_results(file_list, upper_dir)
-        elif processed_successfully > 0:
-            st.warning(f"⚠️ Processed {processed_successfully}/{total_files} panorama(s)")
-            show_perspective_results(file_list, upper_dir)
-        else:
-            st.error("❌ Failed to process any panoramas")
-        
-        # Show complete processing log
-        if all_outputs:
-            with st.expander("📄 Complete Processing Log"):
-                st.text('\n'.join(all_outputs))
 
     def show_perspective_results(file_list, upper_dir):
         """Display the generated perspective views"""
