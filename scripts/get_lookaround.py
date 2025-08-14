@@ -16,9 +16,10 @@ if len(sys.argv) < 3:
 try:
     target_lat = float(sys.argv[1])
     target_lon = float(sys.argv[2])
-    out_dir = float(sys.argv[3])
+    out_dir = sys.argv[3]
     num_panos = int(sys.argv[4]) 
     zoom = int(sys.argv[5]) if len(sys.argv) > 4 else 2
+    print("[get_lookaround]: ", target_lat, target_lon, out_dir, num_panos, zoom)
 except ValueError:
     print("Error: Latitude and longitude must be valid numbers, num_panos must be a valid integer.")
     sys.exit(1)
