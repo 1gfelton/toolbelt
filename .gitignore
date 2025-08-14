@@ -5,3 +5,4 @@ dist/
 build/
 **/*__pycache__*
 !rebuild.sh
+streamlit_proj/.streamlit/
