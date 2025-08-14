@@ -5,7 +5,7 @@ numpy
 requests
 streetlevel
 py360convert
-opencv-python
+opencv-python-headless
 Werkzeug
 pyinstaller
 folium
