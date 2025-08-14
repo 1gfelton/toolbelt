@@ -11,3 +11,4 @@ opencv-python
 Werkzeug
 pyinstaller
 folium
+st_folium
